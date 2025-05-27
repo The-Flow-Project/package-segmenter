@@ -1,0 +1,6 @@
+htrflow
+numpy
+lxml
+kraken
+pillow
+shapely
