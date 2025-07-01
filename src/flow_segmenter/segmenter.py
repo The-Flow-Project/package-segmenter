@@ -7,10 +7,12 @@ Package to recognize text segmentation
 # ===============================================================================
 from abc import ABC, abstractmethod
 import copy
+import logging
 from typing import List, Union, Literal, Dict, Optional
 import yaml
 import torch
 
+# TODO: Implement htrflow fork (lightweight, e.g. without PyLaia or RTMDet)
 from htrflow.volume.volume import Collection
 from htrflow.pipeline.pipeline import Pipeline
 from htrflow.serialization.serialization import PageXML
@@ -23,10 +25,14 @@ from kraken.lib import vgsl
 from kraken.lib.segmentation import (
     calculate_polygonal_environment,
     polygonal_reading_order,
+    extract_polygons,
 )
 from kraken.kraken import SEGMENTATION_DEFAULT_MODEL
 from PIL import Image
 from shapely.geometry import Polygon
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 # ===============================================================================
@@ -124,6 +130,8 @@ class Segmenter(ABC):
 
         return new_etree
 
+    # TODO: Convert _ElementTree to kraken.containers.Segmentation for linemask_only
+
 
 class SegmenterYOLO(Segmenter):
     """
@@ -133,6 +141,7 @@ class SegmenterYOLO(Segmenter):
     :param model_names: String or List of Huggignface models names
     :param batch_sizes: Int or List of ints specifying batch sizes
     :param order_lines: Boolean if the recognized lines should be ordered
+    :param kwargs: Additional keyword arguments for the htrflow pipeline, accepts the same parameters as YOLO.predict()
     """
 
     def __init__(
@@ -140,10 +149,14 @@ class SegmenterYOLO(Segmenter):
             model_names: Union[List[str], str],
             batch_sizes: Union[List[int], int] = 2,
             order_lines: bool = False,
+            export: bool = False,
+            **kwargs: Union[str, int, float, bool],
     ) -> None:
         super().__init__()
         self.model_names = [model_names] if isinstance(model_names, str) else model_names
         self.batch_sizes = self.get_batchsize(batch_sizes)
+        self.export = export
+        self.kwargs = kwargs
 
         # Initiate htrflow pipeline config
         self.config = {'steps': []}
@@ -160,30 +173,47 @@ class SegmenterYOLO(Segmenter):
                     'batch_size': batchsize,
                 }
             }
+            if self.kwargs:
+                settings['generation_settings'].update(self.kwargs)
             self.config['steps'].append({
                 'step': 'Segmentation',
                 'settings': settings,
             })
         if order_lines:
             self.config['steps'].append({'step': 'OrderLines'})
+        if export:
+            settings = {
+                'format': 'page',
+                'dest': '.',
+            }
+            self.config['steps'].append({
+                'step': 'Export',
+                'settings': settings,
+            })
 
+        # logger.debug(self.config)
+        logger.debug(yaml.dump(self.config, default_flow_style=False, sort_keys=False))
         self.config = yaml.safe_load(yaml.dump(self.config))
+        # logger.debug(self.config)
         # Create the htrflow pipeline
         self.pipeline = Pipeline.from_config(self.config)
 
     def segment(self, image: str, xml_etree: Optional[_ElementTree] = None) -> _ElementTree:
         # Use htrflow to run the pipeline
+        serializer = PageXML()
         collection = Collection(paths=[image])
         collection = self.pipeline.run(collection)
-
+        logger.debug('#' * 20 + ' START Serialized PageXML')
+        logger.debug(serializer.serialize_collection(collection)[0][0].encode())
+        logger.debug('#' * 20 + ' END Serialized PageXML')
         # Put the pipeline product into a lxml.etree.ElementTree and get the <Page> element
         # TODO: Maybe add XMLSchema validation to XMLParser, loading the existing page as schema
         new_etree = etree.fromstring(
-            PageXML().serialize_collection(collection)[0][0].encode(),
+            serializer.serialize_collection(collection)[0][0].encode(),
             parser=etree.XMLParser(
                 encoding='utf-8',
                 ns_clean=True,
-                remove_blank_text=True,
+                # remove_blank_text=False,
                 compact=False,
             )
         )
@@ -200,36 +230,47 @@ class SegmenterYOLO(Segmenter):
             return new_etree
 
 
+# TODO: Add linemask_only functionality to SegmenterKraken
 class SegmenterKraken(Segmenter):
     """
     Class to recognize text segmentation in images based on XML-files
     with Kraken model
 
-    :param models: String or List of loaded vsgl.TorchVGSL models
+    :param models: Singel model or List of loaded vsgl.TorchVGSL models
     :param text_direction: Direction of the text in the image \
     ('horizontal-lr', 'horizontal-rl', 'vertical-lr', 'vertical-rl'), default is 'horizontal-lr'
+    :param polygon_length_threshold: Maximum length of the polygon before it is simplified, default is 50
     """
 
     def __init__(
             self,
             models: Union[List[vgsl.TorchVGSLModel], vgsl.TorchVGSLModel] = None,
             text_direction: Literal[
-                'horizontal-lr', 'horizontal-rl', 'vertical-lr', 'vertical-rl'
-            ] = 'horizontal-lr'
+                "horizontal-lr", "horizontal-rl", "vertical-lr", "vertical-rl"
+            ] = 'horizontal-lr',
+            polygon_length_threshold: int = 50,
     ) -> None:
         super().__init__()
+        # Check if models are provided
         if models:
             self.models = [models] if isinstance(models, vgsl.TorchVGSLModel) else models
-        # Check if loaded models are provided
         elif models is None:
             # load the blla default model
             self.models = [vgsl.TorchVGSLModel.load_model(SEGMENTATION_DEFAULT_MODEL)]
         self.text_direction = text_direction
+        self.polygon_length_threshold = polygon_length_threshold
 
-    def segment(self, image: str, xml_etree: Optional[_ElementTree] = None) -> Union[_ElementTree, None]:
+    # noinspection PyTypeChecker
+    def segment(
+            self,
+            image: str,
+            xml_etree: Optional[_ElementTree] = None,
+            image_save: bool = False,
+    ) -> Union[_ElementTree, None]:
         # Load the image
         img = Image.open(image)
 
+        # Load the segmentation model
         xml_page_seg = blla.segment(
             img,
             model=self.models,
@@ -237,11 +278,17 @@ class SegmenterKraken(Segmenter):
             text_direction=self.text_direction,
         )
 
+        # Calculate the mask of each line
         lines = []
         for baseline in xml_page_seg.lines:
             baseline_coords = baseline.baseline
             mask = calculate_polygonal_environment(img, baselines=[baseline_coords])
-            baseline.boundary = mask[0]
+            logger.debug(mask)
+            if mask:
+                if len(mask[0]) > self.polygon_length_threshold:
+                    baseline.boundary = Polygon(mask[0]).simplify(2).exterior.coords[:]
+                else:
+                    baseline.boundary = mask[0]
             if baseline.boundary is None:
                 continue
             lines.append(baseline)
@@ -252,16 +299,23 @@ class SegmenterKraken(Segmenter):
             for bl in xml_page_seg.lines
         ]
 
+        # Create reading order of the text lines
         regions_list = [Polygon(r.boundary) for r in xml_page_seg.regions['text']]
         reading_order = polygonal_reading_order(polygonal_list, regions=regions_list)
         xml_page_seg.reading_order = reading_order
 
+        # Assign new IDs to the lines based on the reading order and region index
         regions_ids = [r.id for r in xml_page_seg.regions['text']]
         for i, bl in enumerate(xml_page_seg.lines):
             if bl.regions and bl.regions[0] in regions_ids:
                 region_index = regions_ids.index(bl.regions[0]) + 1
                 new_id = f'tr_{region_index}_tl_{reading_order[i] + 1}'
                 xml_page_seg.lines[i].id = new_id
+
+        if image_save:
+            generator = extract_polygons(img, xml_page_seg)
+            for mask_image in generator:
+                mask_image[0].save(f'{mask_image[1].id}.jpg', 'JPEG', quality=95)
 
         xml_page = serialization.serialize(
             xml_page_seg,
@@ -273,7 +327,7 @@ class SegmenterKraken(Segmenter):
             parser=etree.XMLParser(
                 encoding='utf-8',
                 ns_clean=True,
-                remove_blank_text=True,
+                # remove_blank_text=False,
                 compact=False,
             )
         )

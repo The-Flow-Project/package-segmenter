@@ -1,5 +1,5 @@
 [project]
-name = "flow-segmenter"
+name = "flow_segmenter"
 version = "0.1.0"
 description = "Segmenter Package for the Flow Project (flow-project.net)"
 readme = "README.md"
@@ -16,4 +16,9 @@ dependencies = [
     "numpy<2.1.dev0",
     "pillow>=11.2.1",
     "shapely>=2.0.6",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
 ]
