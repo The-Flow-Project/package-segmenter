@@ -175,3 +175,13 @@ cython_debug/
 
 # macOS
 .DS_Store
+
+# models and assets
+*.pt
+*.jpg
+*.jpeg
+*.png
+
+# Jupyter Notebook and Lab
+.ipynb_checkpoints/
+*.ipynb
