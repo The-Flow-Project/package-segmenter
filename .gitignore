@@ -185,3 +185,5 @@ cython_debug/
 # Jupyter Notebook and Lab
 .ipynb_checkpoints/
 *.ipynb
+
+pipeline.yml

@@ -8,9 +8,11 @@ Package to recognize text segmentation
 from abc import ABC, abstractmethod
 import copy
 import logging
-from typing import List, Union, Literal, Dict, Optional
+from typing import List, Union, Dict, Optional  # , Literal
 import yaml
 import torch
+import numpy as np
+import scipy.optimize as opt
 
 # TODO: Implement htrflow fork (lightweight, e.g. without PyLaia or RTMDet)
 from htrflow.volume.volume import Collection
@@ -20,16 +22,16 @@ from htrflow.serialization.serialization import PageXML
 from lxml import etree
 from lxml.etree import _ElementTree
 
-from kraken import serialization, blla
-from kraken.lib import vgsl
+from kraken import blla  # , serialization
+# from kraken.lib import vgsl
 from kraken.lib.segmentation import (
     calculate_polygonal_environment,
-    polygonal_reading_order,
-    extract_polygons,
+    # polygonal_reading_order,
+    # extract_polygons,
 )
-from kraken.kraken import SEGMENTATION_DEFAULT_MODEL
+# from kraken.kraken import SEGMENTATION_DEFAULT_MODEL
 from PIL import Image
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, LineString
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -130,7 +132,115 @@ class Segmenter(ABC):
 
         return new_etree
 
-    # TODO: Convert _ElementTree to kraken.containers.Segmentation for linemask_only
+    @staticmethod
+    def _predict_kraken_baselines_for_textlines(
+            image_path: str,
+            xml_etree: _ElementTree,
+    ) -> _ElementTree:
+        """
+        Predict baselines for text lines in the XML file using Kraken's blla segmentation.
+        :param image_path: Path to the image file
+        :param xml_etree: XML tree of the segmented XML file missing baselines
+        :return: ElementTree with baselines added to the text lines
+        """
+        logger.info('Predicting baselines for text lines')
+        img = Image.open(image_path).convert("L")
+        seg = blla.segment(img)
+        ns = Segmenter.get_xml_namespace(xml_etree)
+        masks = []
+        baselines = [
+            LineString(b.baseline) for b in seg.lines if b.baseline is not None and len(b.baseline) > 1
+        ]
+
+        for line_el in xml_etree.findall('.//ns:TextLine', namespaces=ns):
+            coords = line_el.find('.//ns:Coords', namespaces=ns)
+            if coords is None:
+                logger.info(f'No coordinates found for line {line_el}')
+                continue
+            masks.append(Polygon([
+                tuple(map(int, point.split(','))) for point in coords.attrib['points'].split()
+            ]))
+
+        n, m = len(baselines), len(masks)
+        if n == 0 or m == 0:
+            logger.warning('No baselines or masks found. Skipping baseline prediction.')
+            return xml_etree
+        logger.debug(f'Found {n} baselines and {m} masks')
+        overlap_matrix = np.zeros((n, m), dtype=float)
+
+        for i, baseline in enumerate(baselines):
+            total_length = baseline.length
+            for j, poly in enumerate(masks):
+                inter = baseline.intersection(poly)
+                if inter.is_empty:
+                    overlap = 0.0
+                elif inter.geom_type == 'LineString':
+                    overlap = inter.length
+                elif inter.geom_type == 'MultiLineString':
+                    overlap = sum(line.length for line in inter.geoms)
+                else:
+                    overlap = 0.0
+                overlap_matrix[i, j] = (overlap / total_length)
+
+        logger.debug('Overlap matrix (%):')
+        logger.debug(overlap_matrix)
+
+        row_ind, col_ind = opt.linear_sum_assignment(-overlap_matrix)  # Maximize overlap
+
+        textlines_el = xml_etree.findall('.//ns:TextLine', namespaces=ns)
+        for i, j in zip(row_ind, col_ind):
+            baseline = baselines[i]
+            line_el = textlines_el[j]
+            baseline_el = line_el.find('.//ns:Baseline', namespaces=ns)
+            if baseline_el is not None:
+                line_el.remove(baseline_el)
+            baseline_el = etree.Element(f'{{{ns["ns"]}}}Baseline')
+            line_el.insert(0, baseline_el)
+            baseline_points = ' '.join(f'{int(x)},{int(y)}' for x, y in baseline.coords)
+            baseline_el.attrib['points'] = baseline_points
+            logger.debug(f'Added baseline to line {line_el.attrib.get("id", "unknown")}: {baseline_points}')
+        logger.debug('Finished adding baselines to text lines')
+        return xml_etree
+
+    @staticmethod
+    def _add_linemasks_to_pagexml(
+            image_path: str,
+            xml_etree: _ElementTree,
+    ) -> _ElementTree:
+        """
+        Add kraken linemasks to the text lines in the XML file using the baseline points.
+        :param image_path: Path to the image file
+        :param xml_etree: XML tree of the segmented XML file to (re)calculate the linemasks
+        :return: ElementTree with (new) linemasks added to the text lines
+        """
+        img = Image.open(image_path).convert("L")
+        ns = Segmenter.get_xml_namespace(xml_etree)
+
+        for line_el in xml_etree.findall('.//ns:TextLine', namespaces=ns):
+            baseline_el = line_el.find('.//ns:Baseline', namespaces=ns)
+            if baseline_el is None:
+                logger.info(f'No baseline found for line {line_el}')
+                continue
+            points = [(int(x), int(y)) for x, y in [p.split(',') for p in baseline_el.attrib['points'].split()]]
+
+            try:
+                mask = calculate_polygonal_environment(img, baselines=[points])[0]
+            except Exception as e:
+                logger.error(f'Error calculating mask for line {line_el}: {e}')
+                continue
+
+            if not mask:
+                logger.info(f'No mask found for line {line_el}')
+                continue
+
+            mask_str = ' '.join(f'{int(x)},{int(y)}' for x, y in mask)
+            coords_el = line_el.find('.//ns:Coords', namespaces=ns)
+            if coords_el is not None:
+                coords_el.attrib['points'] = mask_str
+            else:
+                coords_el = etree.Element(f'{{{ns["ns"]}}}Coords', points=mask_str)
+                line_el.insert(1, coords_el)
+        return xml_etree
 
 
 class SegmenterYOLO(Segmenter):
@@ -141,6 +251,10 @@ class SegmenterYOLO(Segmenter):
     :param model_names: String or List of Huggignface models names
     :param batch_sizes: Int or List of ints specifying batch sizes
     :param order_lines: Boolean if the recognized lines should be ordered
+    :param export: Boolean if the recognized lines should be exported to a file
+    :param baselines: Boolean if the recognized lines should include baselines
+    :param kraken_linemasks: Boolean if the recognized lines should get a kraken linemask (vs. Yolo)
+    :param textline_check: Boolean if the recognized regions should be checked by id
     :param kwargs: Additional keyword arguments for the htrflow pipeline, accepts the same parameters as YOLO.predict()
     """
 
@@ -150,6 +264,9 @@ class SegmenterYOLO(Segmenter):
             batch_sizes: Union[List[int], int] = 2,
             order_lines: bool = False,
             export: bool = False,
+            baselines: bool = False,
+            kraken_linemasks: bool = False,
+            textline_check: bool = True,
             **kwargs: Union[str, int, float, bool],
     ) -> None:
         super().__init__()
@@ -157,6 +274,10 @@ class SegmenterYOLO(Segmenter):
         self.batch_sizes = self.get_batchsize(batch_sizes)
         self.export = export
         self.kwargs = kwargs
+
+        self.baselines = baselines
+        self.kraken_linemasks = kraken_linemasks
+        self.textline_check = textline_check
 
         # Initiate htrflow pipeline config
         self.config = {'steps': []}
@@ -203,21 +324,45 @@ class SegmenterYOLO(Segmenter):
         serializer = PageXML()
         collection = Collection(paths=[image])
         collection = self.pipeline.run(collection)
-        logger.debug('#' * 20 + ' START Serialized PageXML')
-        logger.debug(serializer.serialize_collection(collection)[0][0].encode())
-        logger.debug('#' * 20 + ' END Serialized PageXML')
-        # Put the pipeline product into a lxml.etree.ElementTree and get the <Page> element
-        # TODO: Maybe add XMLSchema validation to XMLParser, loading the existing page as schema
-        new_etree = etree.fromstring(
-            serializer.serialize_collection(collection)[0][0].encode(),
-            parser=etree.XMLParser(
-                encoding='utf-8',
-                ns_clean=True,
-                # remove_blank_text=False,
-                compact=False,
+        # logger.debug('#' * 20 + ' START Serialized PageXML')
+        # logger.debug(serializer.serialize_collection(collection)[0][0].encode())
+        # logger.debug('#' * 20 + ' END Serialized PageXML')
+        new_etree = etree.ElementTree(
+            etree.fromstring(
+                serializer.serialize_collection(collection)[0][0].encode(),
+                parser=etree.XMLParser(
+                    encoding='utf-8',
+                    ns_clean=True,
+                    compact=False,
+                )
             )
         )
+        logger.debug(type(new_etree))
+        # Check, if textregions ids contain textlines ids
+        if self.textline_check:
+            logger.info('Checking TextRegion ids for "textline"')
+            ns = self.get_xml_namespace(new_etree)
+            textregions = new_etree.findall('.//ns:TextRegion', namespaces=ns)
 
+            logger.debug(f"Root tag: {new_etree.getroot().tag}")
+            logger.debug(ns)
+
+            # for elem in new_etree.iter():
+            #     logger.debug(f"Element: {elem.tag}, ID: {elem.attrib.get('id', '-')}")
+
+            if textregions:
+                for i, tregion in enumerate(textregions):
+                    id_tregion = tregion.attrib['id']
+                    # logger.info(f'Checking TextRegion id "{i}" for "textline": {id_tregion}')
+                    if id_tregion and 'textline' in id_tregion.lower():
+                        # logger.debug(f'TextRegion {id_tregion} contains "textline" in its id.')
+                        tregion.tag = f'{{{ns["ns"]}}}TextLine'
+
+        # Shared baseline/linemask post-processing
+        if self.baselines:
+            new_etree = self._predict_kraken_baselines_for_textlines(image, new_etree)
+        if self.kraken_linemasks:
+            new_etree = self._add_linemasks_to_pagexml(image, new_etree)
         if xml_etree:
             xml_namespace = self.get_xml_namespace(new_etree)
             existing_etree = self.get_new_xml_page(
@@ -231,8 +376,9 @@ class SegmenterYOLO(Segmenter):
 
 
 # TODO: Add linemask_only functionality to SegmenterKraken
+"""
 class SegmenterKraken(Segmenter):
-    """
+    "."."
     Class to recognize text segmentation in images based on XML-files
     with Kraken model
 
@@ -240,7 +386,7 @@ class SegmenterKraken(Segmenter):
     :param text_direction: Direction of the text in the image \
     ('horizontal-lr', 'horizontal-rl', 'vertical-lr', 'vertical-rl'), default is 'horizontal-lr'
     :param polygon_length_threshold: Maximum length of the polygon before it is simplified, default is 50
-    """
+    "."."
 
     def __init__(
             self,
@@ -249,6 +395,7 @@ class SegmenterKraken(Segmenter):
                 "horizontal-lr", "horizontal-rl", "vertical-lr", "vertical-rl"
             ] = 'horizontal-lr',
             polygon_length_threshold: int = 50,
+            **kwargs
     ) -> None:
         super().__init__()
         # Check if models are provided
@@ -259,6 +406,7 @@ class SegmenterKraken(Segmenter):
             self.models = [vgsl.TorchVGSLModel.load_model(SEGMENTATION_DEFAULT_MODEL)]
         self.text_direction = text_direction
         self.polygon_length_threshold = polygon_length_threshold
+        self.linemasks_only = kwargs.get('linemasks_only', False)
 
     # noinspection PyTypeChecker
     def segment(
@@ -332,9 +480,10 @@ class SegmenterKraken(Segmenter):
             )
         )
 
+        if self.linemasks_only:
+            new_etree = self._add_linemasks_to_pagexml(image, new_etree)
         if xml_etree:
             xml_namespace = self.get_xml_namespace(new_etree)
-
             existing_etree = self.get_new_xml_page(
                 existing_etree=new_etree,
                 new_etree=xml_etree,
@@ -343,3 +492,4 @@ class SegmenterKraken(Segmenter):
             return existing_etree
         else:
             return new_etree
+"""

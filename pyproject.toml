@@ -16,6 +16,7 @@ dependencies = [
     "numpy<2.1.dev0",
     "pillow>=11.2.1",
     "shapely>=2.0.6",
+    "scipy",
 ]
 
 [dependency-groups]
