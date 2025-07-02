@@ -255,6 +255,7 @@ class SegmenterYOLO(Segmenter):
     :param baselines: Boolean if the recognized lines should include baselines
     :param kraken_linemasks: Boolean if the recognized lines should get a kraken linemask (vs. Yolo)
     :param textline_check: Boolean if the recognized regions should be checked by id
+    :param creator: Creator of the XML-File (in Metadata), default is 'The-Flow-Project'
     :param kwargs: Additional keyword arguments for the htrflow pipeline, accepts the same parameters as YOLO.predict()
     """
 
@@ -267,12 +268,14 @@ class SegmenterYOLO(Segmenter):
             baselines: bool = False,
             kraken_linemasks: bool = False,
             textline_check: bool = True,
+            creator: str = 'The-Flow-Project',
             **kwargs: Union[str, int, float, bool],
     ) -> None:
         super().__init__()
         self.model_names = [model_names] if isinstance(model_names, str) else model_names
         self.batch_sizes = self.get_batchsize(batch_sizes)
         self.export = export
+        self.creator = creator
         self.kwargs = kwargs
 
         self.baselines = baselines
@@ -372,6 +375,15 @@ class SegmenterYOLO(Segmenter):
             )
             return existing_etree
         else:
+            if self.creator:
+                # Add creator to the metadata of the XML file
+                xml_namespace = self.get_xml_namespace(new_etree)
+                metadata = new_etree.find('.//ns:Metadata', namespaces=xml_namespace)
+                if metadata is None:
+                    metadata = etree.Element(f'{{{xml_namespace["ns"]}}}Metadata')
+                    new_etree.getroot().insert(0, metadata)
+                creator_el = etree.SubElement(metadata, f'{{{xml_namespace["ns"]}}}Creator')
+                creator_el.text = self.creator
             return new_etree
 
 
