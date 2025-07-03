@@ -10,7 +10,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "htrflow",
-    "kraken",
+    "kraken>=5.2.9",
     "lxml",
     "notebook",
     "numpy",
