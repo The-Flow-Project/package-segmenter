@@ -17,5 +17,6 @@ dependencies = [
     "pillow",
     "shapely",
     "scipy",
+    "pydantic>=2.11.7",
 ]
 

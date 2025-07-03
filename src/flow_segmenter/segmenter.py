@@ -23,18 +23,23 @@ from lxml import etree
 from lxml.etree import _ElementTree
 
 from kraken import blla  # , serialization
-# from kraken.lib import vgsl
-from kraken.lib.segmentation import (
-    calculate_polygonal_environment,
-    # polygonal_reading_order,
-    # extract_polygons,
-)
+from kraken.lib.segmentation import calculate_polygonal_environment # polygonal_reading_order, extract_polygons,
 # from kraken.kraken import SEGMENTATION_DEFAULT_MODEL
+# from kraken.lib import vgsl
 from PIL import Image
 from shapely.geometry import Polygon, LineString
 
+from .config import SegmenterConfig
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+DEFAULT_YOLO_ARGS = {
+    'conf': 0.25,  # Confidence threshold
+    'iou': 0.45,  # IoU threshold
+    'max_det': 100,  # Maximum detections per image
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',  # Device to run the model on
+}
 
 
 # ===============================================================================
@@ -245,42 +250,23 @@ class Segmenter(ABC):
 
 class SegmenterYOLO(Segmenter):
     """
-    Class to recognize text segmentation in images based on XML-files
-    with YOLO model
+    YOLO-based Segmenter.
 
-    :param model_names: String or List of Huggignface models names
-    :param batch_sizes: Int or List of ints specifying batch sizes
-    :param order_lines: Boolean if the recognized lines should be ordered
-    :param export: Boolean if the recognized lines should be exported to a file
-    :param baselines: Boolean if the recognized lines should include baselines
-    :param kraken_linemasks: Boolean if the recognized lines should get a kraken linemask (vs. Yolo)
-    :param textline_check: Boolean if the recognized regions should be checked by id
-    :param creator: Creator of the XML-File (in Metadata), default is 'The-Flow-Project'
-    :param kwargs: Additional keyword arguments for the htrflow pipeline, accepts the same parameters as YOLO.predict()
+    :param config: SegmenterConfig instance with model names, options, and YOLO-specific arguments.
     """
 
-    def __init__(
-            self,
-            model_names: Union[List[str], str],
-            batch_sizes: Union[List[int], int] = 2,
-            order_lines: bool = False,
-            export: bool = False,
-            baselines: bool = False,
-            kraken_linemasks: bool = False,
-            textline_check: bool = True,
-            creator: str = 'The-Flow-Project',
-            **kwargs: Union[str, int, float, bool],
-    ) -> None:
+    def __init__(self, config: SegmenterConfig) -> None:
         super().__init__()
-        self.model_names = [model_names] if isinstance(model_names, str) else model_names
-        self.batch_sizes = self.get_batchsize(batch_sizes)
-        self.export = export
-        self.creator = creator
-        self.kwargs = kwargs
+        self.model_names = [config.model_names] if isinstance(config.model_names, str) else config.model_names
+        self.batch_sizes = self.get_batchsize(config.batch_sizes)
+        self.export = config.export
+        self.creator = config.creator
+        self.yolo_args = {**DEFAULT_YOLO_ARGS, **(config.yolo_args or {})}
 
-        self.baselines = baselines
-        self.kraken_linemasks = kraken_linemasks
-        self.textline_check = textline_check
+        self.baselines = config.baselines
+        self.kraken_linemasks = [config.kraken_linemasks if self.baselines else False]
+        self.textline_check = config.textline_check
+        self.order_lines = config.order_lines
 
         # Initiate htrflow pipeline config
         self.config = {'steps': []}
@@ -297,15 +283,15 @@ class SegmenterYOLO(Segmenter):
                     'batch_size': batchsize,
                 }
             }
-            if self.kwargs:
-                settings['generation_settings'].update(self.kwargs)
+            if self.yolo_args:
+                settings['generation_settings'].update(self.yolo_args)
             self.config['steps'].append({
                 'step': 'Segmentation',
                 'settings': settings,
             })
-        if order_lines:
+        if self.order_lines:
             self.config['steps'].append({'step': 'OrderLines'})
-        if export:
+        if self.export:
             settings = {
                 'format': 'page',
                 'dest': '.',
