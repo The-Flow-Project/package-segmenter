@@ -1,13 +1,25 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "flow_segmenter"
 version = "0.1.5"
 description = "Segmenter Package for the Flow Project (flow-project.net)"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
     { name = "Jonas Widmer", email = "jonas.widmer@unibe.ch" },
     { name = "Dana Rebecca Meyer", email = "dameyer@techfak.uni-bielefeld.de" }
 ]
 requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
 dependencies = [
     "htrflow",
     "kraken>=5.2.9",
@@ -18,5 +30,21 @@ dependencies = [
     "shapely",
     "scipy",
     "pydantic>=2.11.7",
+    "scipy-stubs==1.16.0.2",
+]
+keywords = [
+    "flow-project",
+    "segmentation",
+    "htrflow",
+    "digital-humanities",
+    "htr",
+    "handwritten-text-recognition",
+    "datasets",
+    "huggingface",
+    "nlp",
+    "machine-learning",
 ]
 
+[project.urls]
+Homepage = "https://flow-project.net"
+Repository = "https://github.com/The-Flow-Project/package-segmenter"

@@ -23,7 +23,8 @@ from lxml import etree
 from lxml.etree import _ElementTree
 
 from kraken import blla  # , serialization
-from kraken.lib.segmentation import calculate_polygonal_environment # polygonal_reading_order, extract_polygons,
+from kraken.lib.segmentation import calculate_polygonal_environment
+# polygonal_reading_order, extract_polygons,
 # from kraken.kraken import SEGMENTATION_DEFAULT_MODEL
 # from kraken.lib import vgsl
 from PIL import Image
@@ -109,33 +110,41 @@ class Segmenter(ABC):
     @staticmethod
     def get_new_xml_page(
             existing_etree: _ElementTree,
-            new_etree: Union[_ElementTree, str],
-            namespace: Dict[str, str]
+            new_etree: _ElementTree,
+            namespace_existing: Dict[str, str],
+            namespace_new: Dict[str, str]
     ) -> _ElementTree:
         """
         Change the existing XML page by replacing the <Page> element
         with the new <Page> element from the new XML file.
 
+        :param namespace_new: New namespace of the XML file with segmentation
+        :param namespace_existing: Existing namespace of the XML file without segmentation
         :param existing_etree: Existing XML tree of the unsegmented XML file
         :param new_etree: New XML tree with segmentation
-        :param namespace: Namespace dictionary of the XML file
         :return: existing_etree with the new <Page> element
         """
         existing_etree = copy.deepcopy(existing_etree)
-        root = existing_etree.getroot()
 
-        new_page = new_etree.find('.//ns:Page', namespaces=namespace)
-        existing_page = root.find('.//ns:Page', namespaces=namespace)
+        existing_root = existing_etree.getroot()
+        new_root = new_etree.getroot()
 
-        # Remove all the elements inside <Page> from the existing page
-        # since it has no segmentation
+        new_page = new_root.find('.//ns:Page', namespaces=namespace_new)
+        existing_page = existing_root.find('.//ns:Page', namespaces=namespace_existing)
+
+        logger.debug(f'Existing page: {existing_page}')
+        logger.debug(f'New page: {new_page}')
+
+        if existing_page is None:
+            raise ValueError("No <Page> element found in existing XML")
+        if new_page is None:
+            raise ValueError("No <Page> element found in new XML")
+
         for child in list(existing_page):
             existing_page.remove(child)
-
         for element in new_page:
             existing_page.append(copy.deepcopy(element))
-
-        return new_etree
+        return existing_etree
 
     @staticmethod
     def _predict_kraken_baselines_for_textlines(
@@ -199,7 +208,7 @@ class Segmenter(ABC):
             baseline_el = line_el.find('.//ns:Baseline', namespaces=ns)
             if baseline_el is not None:
                 line_el.remove(baseline_el)
-            baseline_el = etree.Element(f'{{{ns["ns"]}}}Baseline')
+            baseline_el = etree._Element(f'{{{ns["ns"]}}}Baseline')
             line_el.insert(0, baseline_el)
             baseline_points = ' '.join(f'{int(x)},{int(y)}' for x, y in baseline.coords)
             baseline_el.attrib['points'] = baseline_points
@@ -243,7 +252,7 @@ class Segmenter(ABC):
             if coords_el is not None:
                 coords_el.attrib['points'] = mask_str
             else:
-                coords_el = etree.Element(f'{{{ns["ns"]}}}Coords', points=mask_str)
+                coords_el = etree._Element(f'{{{ns["ns"]}}}Coords', points=mask_str)
                 line_el.insert(1, coords_el)
         return xml_etree
 
@@ -268,10 +277,10 @@ class SegmenterYOLO(Segmenter):
         self.textline_check = config.textline_check
         self.order_lines = config.order_lines
 
-        # Initiate htrflow pipeline config
-        self.config = {'steps': []}
+        # Initiate htrflow pipeline htrflowConfig
+        self.htrflowConfig = {'steps': []}
 
-        # Add the segmentation steps to the pipeline config
+        # Add the segmentation steps to the pipeline htrflowConfig
         for model, batchsize in zip(self.model_names, self.batch_sizes):
             settings = {
                 'model': 'yolo',
@@ -285,38 +294,41 @@ class SegmenterYOLO(Segmenter):
             }
             if self.yolo_args:
                 settings['generation_settings'].update(self.yolo_args)
-            self.config['steps'].append({
+            self.htrflowConfig['steps'].append({
                 'step': 'Segmentation',
                 'settings': settings,
             })
         if self.order_lines:
-            self.config['steps'].append({'step': 'OrderLines'})
+            self.htrflowConfig['steps'].append({'step': 'OrderLines'})
         if self.export:
             settings = {
                 'format': 'page',
                 'dest': '.',
             }
-            self.config['steps'].append({
+            self.htrflowConfig['steps'].append({
                 'step': 'Export',
                 'settings': settings,
             })
 
-        # logger.debug(self.config)
-        logger.debug(yaml.dump(self.config, default_flow_style=False, sort_keys=False))
-        self.config = yaml.safe_load(yaml.dump(self.config))
-        # logger.debug(self.config)
+        logger.debug(yaml.dump(self.htrflowConfig, default_flow_style=False, sort_keys=False))
+        self.htrflowConfig = yaml.safe_load(yaml.dump(self.htrflowConfig))
         # Create the htrflow pipeline
-        self.pipeline = Pipeline.from_config(self.config)
+        self.pipeline = Pipeline.from_config(self.htrflowConfig)
 
-    def segment(self, image: str, xml_etree: Optional[_ElementTree] = None) -> _ElementTree:
+    def segment(self, image: str, xml_etree: Optional[_ElementTree] = None) -> _ElementTree | None:
         # Use htrflow to run the pipeline
         serializer = PageXML()
+        logger.info(f'Segmenting image {image}')
         collection = Collection(paths=[image])
+        if len(collection.pages) < 1:
+            logger.error(f'No pages found in the collection for image {image}')
+            return None
         collection = self.pipeline.run(collection)
-        # logger.debug('#' * 20 + ' START Serialized PageXML')
-        # logger.debug(serializer.serialize_collection(collection)[0][0].encode())
-        # logger.debug('#' * 20 + ' END Serialized PageXML')
-        new_etree = etree.ElementTree(
+        logger.debug(f'Collection: {collection}')
+        logger.debug('#' * 20 + ' START Serialized PageXML')
+        logger.debug(serializer.serialize_collection(collection)[0][0].encode())
+        logger.debug('#' * 20 + ' END Serialized PageXML')
+        new_etree = etree._ElementTree(
             etree.fromstring(
                 serializer.serialize_collection(collection)[0][0].encode(),
                 parser=etree.XMLParser(
@@ -353,11 +365,16 @@ class SegmenterYOLO(Segmenter):
         if self.kraken_linemasks:
             new_etree = self._add_linemasks_to_pagexml(image, new_etree)
         if xml_etree:
+            logger.debug(xml_etree)
+            logger.debug(type(xml_etree))
+            logger.debug(etree.tostring(xml_etree, pretty_print=True).decode())
+            xml_namespace_old = self.get_xml_namespace(xml_etree)
             xml_namespace = self.get_xml_namespace(new_etree)
             existing_etree = self.get_new_xml_page(
                 existing_etree=xml_etree,
                 new_etree=new_etree,
-                namespace=xml_namespace
+                namespace_existing=xml_namespace_old,
+                namespace_new=xml_namespace
             )
             return existing_etree
         else:
@@ -366,7 +383,7 @@ class SegmenterYOLO(Segmenter):
                 xml_namespace = self.get_xml_namespace(new_etree)
                 metadata = new_etree.find('.//ns:Metadata', namespaces=xml_namespace)
                 if metadata is None:
-                    metadata = etree.Element(f'{{{xml_namespace["ns"]}}}Metadata')
+                    metadata = etree._Element(f'{{{xml_namespace["ns"]}}}Metadata')
                     new_etree.getroot().insert(0, metadata)
                 creator_el = etree.SubElement(metadata, f'{{{xml_namespace["ns"]}}}Creator')
                 creator_el.text = self.creator

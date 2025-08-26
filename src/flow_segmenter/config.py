@@ -4,6 +4,7 @@ Pydantic Model for SegmenterConfig.
 from typing import Union, List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+
 class SegmenterConfig(BaseModel):
     model_names: Union[str, List[str]] = Field(
         ...,
