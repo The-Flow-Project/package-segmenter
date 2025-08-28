@@ -8,9 +8,11 @@ Package to recognize text segmentation
 from abc import ABC, abstractmethod
 import copy
 import logging
+import os
 from typing import List, Union, Dict, Optional  # , Literal
 import yaml
 import torch
+import datasets
 import numpy as np
 import scipy.optimize as opt
 
@@ -19,8 +21,7 @@ from htrflow.volume.volume import Collection
 from htrflow.pipeline.pipeline import Pipeline
 from htrflow.serialization.serialization import PageXML
 
-from lxml import etree
-from lxml.etree import _ElementTree
+import lxml.etree as ET
 
 from kraken import blla  # , serialization
 from kraken.lib.segmentation import calculate_polygonal_environment
@@ -66,7 +67,7 @@ class Segmenter(ABC):
         self.text_direction = None
 
     @abstractmethod
-    def segment(self, xml_etree: _ElementTree, image: str) -> _ElementTree:
+    def segment(self, xml_etree: ET.Element, image: str) -> ET.Element:
         """
         Method to segment the image with the loaded model
         :param xml_etree: XML tree of the unsegmented XML file
@@ -94,26 +95,23 @@ class Segmenter(ABC):
         return batch_sizes
 
     @staticmethod
-    def get_xml_namespace(xml_etree: _ElementTree) -> Dict[str, str]:
+    def get_xml_namespace(xml_etree: ET.Element) -> Dict[str, str]:
         """
         Method to get the namespace of the XML file
         :param xml_etree: XML tree of the unsegmented XML file
         :return: Dictionary {'ns': 'namespace_uri'} with the namespace URI
         """
         # Get the namespace
-        existing_etree = copy.deepcopy(xml_etree)
-        root = existing_etree.getroot()
-        namespace_uri = root.tag.split('}')[0][1:]
-        xmlns = {'ns': namespace_uri}
-        return xmlns
+        root = copy.deepcopy(xml_etree)
+        return root.nsmap if None not in root.nsmap else {'ns': root.nsmap[None]}
 
     @staticmethod
     def get_new_xml_page(
-            existing_etree: _ElementTree,
-            new_etree: _ElementTree,
+            existing_etree: ET.Element,
+            new_etree: ET.Element,
             namespace_existing: Dict[str, str],
             namespace_new: Dict[str, str]
-    ) -> _ElementTree:
+    ) -> ET.Element:
         """
         Change the existing XML page by replacing the <Page> element
         with the new <Page> element from the new XML file.
@@ -126,8 +124,8 @@ class Segmenter(ABC):
         """
         existing_etree = copy.deepcopy(existing_etree)
 
-        existing_root = existing_etree.getroot()
-        new_root = new_etree.getroot()
+        existing_root = existing_etree
+        new_root = new_etree
 
         new_page = new_root.find('.//ns:Page', namespaces=namespace_new)
         existing_page = existing_root.find('.//ns:Page', namespaces=namespace_existing)
@@ -149,13 +147,13 @@ class Segmenter(ABC):
     @staticmethod
     def _predict_kraken_baselines_for_textlines(
             image_path: str,
-            xml_etree: _ElementTree,
-    ) -> _ElementTree:
+            xml_etree: ET.Element,
+    ) -> ET.Element:
         """
         Predict baselines for text lines in the XML file using Kraken's blla segmentation.
         :param image_path: Path to the image file
         :param xml_etree: XML tree of the segmented XML file missing baselines
-        :return: ElementTree with baselines added to the text lines
+        :return: Element with baselines added to the text lines
         """
         logger.info('Predicting baselines for text lines')
         img = Image.open(image_path).convert("L")
@@ -208,7 +206,7 @@ class Segmenter(ABC):
             baseline_el = line_el.find('.//ns:Baseline', namespaces=ns)
             if baseline_el is not None:
                 line_el.remove(baseline_el)
-            baseline_el = etree._Element(f'{{{ns["ns"]}}}Baseline')
+            baseline_el = ET.Element(f'Baseline', nsmap={'ns': ns['ns']})
             line_el.insert(0, baseline_el)
             baseline_points = ' '.join(f'{int(x)},{int(y)}' for x, y in baseline.coords)
             baseline_el.attrib['points'] = baseline_points
@@ -219,13 +217,13 @@ class Segmenter(ABC):
     @staticmethod
     def _add_linemasks_to_pagexml(
             image_path: str,
-            xml_etree: _ElementTree,
-    ) -> _ElementTree:
+            xml_etree: ET.Element,
+    ) -> ET.Element:
         """
         Add kraken linemasks to the text lines in the XML file using the baseline points.
         :param image_path: Path to the image file
         :param xml_etree: XML tree of the segmented XML file to (re)calculate the linemasks
-        :return: ElementTree with (new) linemasks added to the text lines
+        :return: Element with (new) linemasks added to the text lines
         """
         img = Image.open(image_path).convert("L")
         ns = Segmenter.get_xml_namespace(xml_etree)
@@ -252,7 +250,7 @@ class Segmenter(ABC):
             if coords_el is not None:
                 coords_el.attrib['points'] = mask_str
             else:
-                coords_el = etree._Element(f'{{{ns["ns"]}}}Coords', points=mask_str)
+                coords_el = ET.Element(f'Coords', points=mask_str, nsmap=ns)
                 line_el.insert(1, coords_el)
         return xml_etree
 
@@ -315,7 +313,14 @@ class SegmenterYOLO(Segmenter):
         # Create the htrflow pipeline
         self.pipeline = Pipeline.from_config(self.htrflowConfig)
 
-    def segment(self, image: str, xml_etree: Optional[_ElementTree] = None) -> _ElementTree | None:
+    def segment(
+            self,
+            image: Union[str, np.ndarray],
+            xml_etree: Optional[ET.Element] = None
+    ) -> Union[ET.Element, None]:
+        """
+        Method to segment the image with the loaded model
+        """
         # Use htrflow to run the pipeline
         serializer = PageXML()
         logger.info(f'Segmenting image {image}')
@@ -328,14 +333,12 @@ class SegmenterYOLO(Segmenter):
         logger.debug('#' * 20 + ' START Serialized PageXML')
         logger.debug(serializer.serialize_collection(collection)[0][0].encode())
         logger.debug('#' * 20 + ' END Serialized PageXML')
-        new_etree = etree._ElementTree(
-            etree.fromstring(
-                serializer.serialize_collection(collection)[0][0].encode(),
-                parser=etree.XMLParser(
-                    encoding='utf-8',
-                    ns_clean=True,
-                    compact=False,
-                )
+        new_etree = ET.fromstring(
+            serializer.serialize_collection(collection)[0][0].encode(),
+            parser=ET.XMLParser(
+                encoding='utf-8',
+                ns_clean=True,
+                compact=False,
             )
         )
         logger.debug(type(new_etree))
@@ -345,7 +348,7 @@ class SegmenterYOLO(Segmenter):
             ns = self.get_xml_namespace(new_etree)
             textregions = new_etree.findall('.//ns:TextRegion', namespaces=ns)
 
-            logger.debug(f"Root tag: {new_etree.getroot().tag}")
+            logger.debug(f"Root tag: {new_etree.tag}")
             logger.debug(ns)
 
             # for elem in new_etree.iter():
@@ -364,10 +367,10 @@ class SegmenterYOLO(Segmenter):
             new_etree = self._predict_kraken_baselines_for_textlines(image, new_etree)
         if self.kraken_linemasks:
             new_etree = self._add_linemasks_to_pagexml(image, new_etree)
-        if xml_etree:
+        if xml_etree is not None:
             logger.debug(xml_etree)
             logger.debug(type(xml_etree))
-            logger.debug(etree.tostring(xml_etree, pretty_print=True).decode())
+            logger.debug(ET.tostring(xml_etree, pretty_print=True).decode())
             xml_namespace_old = self.get_xml_namespace(xml_etree)
             xml_namespace = self.get_xml_namespace(new_etree)
             existing_etree = self.get_new_xml_page(
@@ -378,16 +381,64 @@ class SegmenterYOLO(Segmenter):
             )
             return existing_etree
         else:
-            if self.creator:
+            if self.creator is not None:
+                logger.info(f'Adding creator "{self.creator}" to the metadata of the XML file')
                 # Add creator to the metadata of the XML file
                 xml_namespace = self.get_xml_namespace(new_etree)
                 metadata = new_etree.find('.//ns:Metadata', namespaces=xml_namespace)
                 if metadata is None:
-                    metadata = etree._Element(f'{{{xml_namespace["ns"]}}}Metadata')
-                    new_etree.getroot().insert(0, metadata)
-                creator_el = etree.SubElement(metadata, f'{{{xml_namespace["ns"]}}}Creator')
+                    metadata = ET.Element('Metadata', nsmap=xml_namespace)
+                    new_etree.insert(0, metadata)
+                creator_el = ET.SubElement(metadata, 'Creator', nsmap=xml_namespace)
                 creator_el.text = self.creator
             return new_etree
+
+    def segment_dataset(
+            self,
+            dataset: datasets.Dataset,
+            new_column_name: Optional[str] = None
+    ) -> datasets.Dataset:
+        """
+        Method to segment a HuggingFace dataset with the loaded model
+        :param dataset: HuggingFace dataset with 'image' and 'xml' (XML content string) columns
+        :param new_column_name: Name of the new column to store the segmented XML, default is None (xml is replaced)
+        :return: HuggingFace dataset with segmented XML in 'xml_segmented' column
+        """
+        if 'image' not in dataset.column_names or 'xml' not in dataset.column_names:
+            raise ValueError("Dataset must contain 'image' and 'xml' columns")
+
+        new_column_name = new_column_name if new_column_name else 'xml'
+
+        def segment_example(example):
+            """
+            Generator for mapping the segmentation function to each example in the dataset
+            :param example:
+            :return:
+            """
+            image = np.array(example['image'])
+            temp_image_path = 'temp_image.jpg'
+            xml_content = example['xml']
+            xml_bytes = xml_content.encode('utf-8')
+            xml_etree = ET.fromstring(xml_bytes)
+            try:
+                Image.fromarray(image).save(temp_image_path, 'JPEG', quality=95)
+                segmented_etree = self.segment(image=temp_image_path, xml_etree=xml_etree)
+            except Exception as e:
+                logger.error(f'Error segmenting image {example["image"]}: {e}')
+                segmented_etree = None
+            finally:
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+
+            if segmented_etree is not None:
+                segmented_xml = ET.tostring(segmented_etree, encoding='utf-8').decode('utf-8')
+                example[new_column_name] = segmented_xml
+            else:
+                example[new_column_name] = None
+            return example
+
+        segmented_dataset = dataset.map(segment_example)
+        return segmented_dataset
 
 
 # TODO: Add linemask_only functionality to SegmenterKraken
@@ -427,9 +478,9 @@ class SegmenterKraken(Segmenter):
     def segment(
             self,
             image: str,
-            xml_etree: Optional[_ElementTree] = None,
+            xml_etree: Optional[Element] = None,
             image_save: bool = False,
-    ) -> Union[_ElementTree, None]:
+    ) -> Union[Element, None]:
         # Load the image
         img = Image.open(image)
 
