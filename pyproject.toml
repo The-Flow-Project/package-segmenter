@@ -21,15 +21,15 @@ classifiers = [
 ]
 license = "MIT"
 dependencies = [
-    "htrflow",
-    "kraken>=5.2.9",
-    "lxml",
-    "notebook",
-    "numpy",
-    "pillow",
-    "shapely",
-    "scipy",
-    "pydantic>=2.11.7",
+    "htrflow>=0.2.6",
+    "kraken>=6.0.2",
+    "lxml>=6.0.2",
+    "notebook>=7.4.7",
+    "numpy>=1.26.4",
+    "pillow>=11.3.0",
+    "shapely>=2.0.6",
+    "scipy>=1.13.0",
+    "pydantic>=2.11.4",
     "scipy-stubs==1.16.0.2",
     "datasets>=4.0.0",
 ]
