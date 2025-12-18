@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flow_segmenter"
-version = "0.1.5"
+dynamic=["version"]
 description = "Segmenter Package for the Flow Project (flow-project.net)"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
@@ -158,3 +158,6 @@ exclude_lines = [
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
 ]
+
+[tool.setuptools.dynamic]
+version = { attr = "flow_segmenter.__version__.__version__" }

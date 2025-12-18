@@ -72,6 +72,5 @@ docs/_build/
 docs/_static/
 docs/_templates/
 
-# uv
-uv.lock
-
+# handeled by pyproject.toml
+requirements.txt
