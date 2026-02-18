@@ -15,7 +15,7 @@ from .exceptions import (
 from .segmenter import SegmenterYOLO
 from .xml_utils import XMLUtils
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 __license__ = "MIT"
 __authors__ = ["l0rn0r"]
 

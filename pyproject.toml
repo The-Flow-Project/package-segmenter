@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flow_segmenter"
-dynamic=["version"]
+dynamic = ["version"]
 description = "Segmenter Package for the Flow Project (flow-project.net)"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
@@ -98,21 +98,21 @@ extend-exclude = '''
 line-length = 88
 target-version = "py312"
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
-    "A",   # flake8-builtins
-    "C4",  # flake8-comprehensions
-    "PT",  # flake8-pytest-style
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # pyflakes
+    "I", # isort
+    "N", # pep8-naming
+    "UP", # pyupgrade
+    "B", # flake8-bugbear
+    "A", # flake8-builtins
+    "C4", # flake8-comprehensions
+    "PT", # flake8-pytest-style
     "SIM", # flake8-simplify
 ]
 ignore = [
-    "E501",  # line too long (handled by black)
-    "B008",  # do not perform function calls in argument defaults
+    "E501", # line too long (handled by black)
+    "B008", # do not perform function calls in argument defaults
 ]
 
 [tool.ruff.per-file-ignores]
