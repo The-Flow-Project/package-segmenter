@@ -7,11 +7,30 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class SegmenterConfig(BaseModel):
+class SegmenterBaseConfig(BaseModel):
+    """
+    Base configuration model for the segmentation process.
+    """
+    order_lines: bool = Field(False, description="Whether to order text lines")
+    export: bool = Field(False, description="Export results to PageXML files or not")
+    baselines: bool = Field(
+        False, description="Generate baselines by the kraken default-blla-model "
+                           "(expected if not existing in the XML file)"
+    )
+    kraken_linemasks: bool = Field(
+        False,
+        description="Recalculate line masks using kraken's default blla model (baselines needed)",
+    )
+    creator: str = Field(
+        "The-Flow-Project",
+        description="Creator name for metadata, default is 'The-Flow-Project'.",
+    )
+
+
+class SegmenterConfig(SegmenterBaseConfig):
     """
     Configuration model for the segmentation process.
     """
-
     model_names: str | list[str] = Field(
         ...,
         description="Huggingface model name(s) and/or local path(s) as string or list of strings.",
@@ -20,35 +39,15 @@ class SegmenterConfig(BaseModel):
         2,
         description="Batch size(s) per model as integer or list of integers (as long as the model_names list).",
     )
-    order_lines: bool = Field(False, description="Whether to order text lines")
-    export: bool = Field(False, description="Export results to PageXML files or not")
-    baselines: bool = Field(
-        False, description="Include kraken default-blla-model baselines in the output"
-    )
-    kraken_linemasks: bool = Field(
-        False,
-        description="Recalculate line masks using kraken's default blla model (only if baselines is True)",
-    )
     textline_check: bool = Field(
         True,
         description="Check textline IDs and convert TextRegions to TextLines if ID contains 'textline'",
-    )
-    creator: str = Field(
-        "The-Flow-Project",
-        description="Creator name for metadata, default is 'The-Flow-Project'.",
     )
     yolo_args: dict[str, Any] | None = Field(
         None,
         description="Additional YOLO pipeline arguments. "
                     "See https://docs.ultralytics.com/modes/predict/#inference-arguments for details.",
     )
-
-    @model_validator(mode="after")
-    def validate_kraken_linemasks_requires_baselines(self):
-        """Ensure kraken_linemasks is only True if baselines is also True."""
-        if self.kraken_linemasks and not self.baselines:
-            raise ValueError("kraken_linemasks=True requires baselines=True")
-        return self
 
     @model_validator(mode="after")
     def validate_batch_sizes_length(self):
