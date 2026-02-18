@@ -53,8 +53,8 @@ class XMLUtils:
         new_page = new_root.find(".//ns:Page", namespaces=namespace_new)
         existing_page = existing_root.find(".//ns:Page", namespaces=namespace_existing)
 
-        logger.debug(f"Existing page: {existing_page}")
-        logger.debug(f"New page: {new_page}")
+        # logger.debug(f"Existing page: {existing_page}")
+        # logger.debug(f"New page: {new_page}")
 
         if existing_page is None:
             raise PageNotFoundError("No <Page> element found in existing XML")
@@ -151,7 +151,7 @@ class XMLUtils:
                     ns_clean=True,
                     compact=False,
                     resolve_entities=False,  # Prevent XXE attacks
-                    no_network=True,  # Disable network access
+                    # no_network=True,  # Disable network access
                 ),
             )
         except ET.XMLSyntaxError as e:

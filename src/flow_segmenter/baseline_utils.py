@@ -3,6 +3,7 @@ Baseline utilities with performance optimizations.
 """
 
 import logging
+from io import BytesIO
 
 import lxml.etree as ET
 import numpy as np
@@ -180,12 +181,12 @@ class BaselineUtils:
 
     @staticmethod
     def predict_kraken_baselines(
-            image_path: str, xml_etree: ET.Element, namespace: dict[str, str]
+            image: str | bytes | np.ndarray, xml_etree: ET.Element, namespace: dict[str, str]
     ) -> ET.Element:
         """
         Predict baselines for text lines using Kraken with optimized matching.
 
-        :param image_path: Path to the image file
+        :param image: Image path or bytes or numpy array
         :param xml_etree: XML tree with text lines
         :param namespace: XML namespace dictionary
         :return: XML tree with added baselines
@@ -193,7 +194,12 @@ class BaselineUtils:
         logger.info("Predicting baselines for text lines")
 
         # Load image
-        img = BaselineUtils.load_image_grayscale(image_path)
+        if isinstance(image, str):
+            img = BaselineUtils.load_image_grayscale(image)
+        elif isinstance(image, np.ndarray):
+            img = Image.fromarray(image).convert('L')
+        else:
+            img = Image.open(BytesIO(image)).convert('L')
 
         # Run Kraken segmentation
         seg = blla.segment(img)
@@ -227,13 +233,13 @@ class BaselineUtils:
         return xml_etree
 
     @staticmethod
-    def add_linemasks_to_textlines(
-            image_path: str, xml_etree: ET.Element, namespace: dict[str, str]
+    def calc_and_add_linemasks_to_textlines(
+            image: str | bytes | np.ndarray, xml_etree: ET.Element, namespace: dict[str, str]
     ) -> ET.Element:
         """
         Calculate and add line masks to text lines based on their baselines.
 
-        :param image_path: Path to the image file
+        :param image: Image path or bytes or numpy array
         :param xml_etree: XML tree with baselines
         :param namespace: XML namespace dictionary
         :return: XML tree with updated line masks
@@ -241,14 +247,21 @@ class BaselineUtils:
         logger.info("Adding line masks to text lines")
 
         # Load image
-        img = BaselineUtils.load_image_grayscale(image_path)
+        if isinstance(image, str):
+            img = BaselineUtils.load_image_grayscale(image)
+        elif isinstance(image, np.ndarray):
+            img = Image.fromarray(image).convert('L')
+        else:
+            img = Image.open(BytesIO(image)).convert('L')
 
-        # Process each text line
-        for line_el in xml_etree.findall(".//ns:TextLine", namespaces=namespace):
-            baseline_el = line_el.find(".//ns:Baseline", namespaces=namespace)
+        # Process text lines with baselines
+        baseline_points = []
+        lines = []
+        for baseline_el in xml_etree.findall(".//ns:TextLine/ns:Baseline", namespaces=namespace):
+            line_nr = baseline_el.getparent().attrib.get("id", "unknown")
             if baseline_el is None:
                 logger.debug(
-                    f'No baseline found for line {line_el.attrib.get("id", "unknown")}'
+                    f'No baseline found for line {line_nr}'
                 )
                 continue
 
@@ -260,30 +273,39 @@ class BaselineUtils:
                         p.split(",") for p in baseline_el.attrib["points"].split()
                     ]
                 ]
+                baseline_points.append(points)
+                lines.append(baseline_el.getparent())
             except (ValueError, KeyError) as e:
                 logger.error(
-                    f'Invalid baseline points for line {line_el.attrib.get("id", "unknown")}: {e}'
+                    f'Invalid baseline points for line {line_nr}: {e}'
                 )
                 continue
 
-            # Calculate mask using Kraken
-            try:
-                mask = calculate_polygonal_environment(img, baselines=[points])[0]
-            except Exception as e:
-                logger.error(
-                    f'Error calculating mask for line {line_el.attrib.get("id", "unknown")}: {e}'
-                )
-                continue
+        # Calculate mask using Kraken
+        masks = None
+        try:
+            masks = calculate_polygonal_environment(img, baselines=baseline_points)
+        except Exception as e:
+            logger.error(
+                f'Error calculating mask: {e}'
+            )
 
-            if not mask:
-                logger.debug(
-                    f'No mask calculated for line {line_el.attrib.get("id", "unknown")}'
-                )
-                continue
+        if masks is None:
+            logger.debug(
+                f'No mask calculated'
+            )
+            return xml_etree
+        logger.debug(f"Calculated {len(masks)} line masks")
+        logger.debug(f"There are {len([m for m in masks if m is not None])} valid masks")
 
-            # Update or create Coords element
-            mask_str = " ".join(f"{int(x)},{int(y)}" for x, y in mask)
+        # Update or create Coords element
+        for line_el, mask in zip(lines, masks):
             coords_el = line_el.find(".//ns:Coords", namespaces=namespace)
+            logger.debug(f"Mask for line {line_el.attrib.get('id', 'unknown')}: {mask}")
+            if mask is None:
+                mask_str = coords_el.attrib["points"] if coords_el is not None else ""
+            else:
+                mask_str = " ".join(f"{int(x)},{int(y)}" for x, y in mask)
 
             if coords_el is not None:
                 coords_el.attrib["points"] = mask_str

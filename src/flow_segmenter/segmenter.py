@@ -4,6 +4,7 @@ Package to recognize text segmentation
 
 import logging
 import tempfile
+from io import BytesIO
 
 # ===============================================================================
 # IMPORT STATEMENTS
@@ -18,12 +19,11 @@ import yaml
 from htrflow.pipeline.pipeline import Pipeline
 from htrflow.serialization.serialization import PageXML
 
-# TODO: Implement htrflow fork (lightweight, e.g. without PyLaia or RTMDet)
 from htrflow.volume.volume import Collection
 from PIL import Image
 
 from .baseline_utils import BaselineUtils
-from .config import SegmenterConfig
+from .config import SegmenterBaseConfig, SegmenterConfig
 from .exceptions import (
     EmptyCollectionError,
     InvalidImageError,
@@ -77,7 +77,7 @@ class Segmenter(ABC):
 
     @abstractmethod
     def segment(
-            self, image: str | np.ndarray, xml_etree: ET.Element | None = None
+            self, image: str | bytes, xml_etree: ET.Element | None = None
     ) -> ET.Element | None:
         """
         Method to segment the image with the loaded model
@@ -111,8 +111,183 @@ class Segmenter(ABC):
 
         return batch_sizes
 
+    @staticmethod
+    def _load_pil_image_from_example(image_example: dict) -> Image.Image:
+        """
+        Load a PIL image from a dataset image example.
 
-class SegmenterYOLO(Segmenter):
+        Supports raw bytes, file paths, or array-like images.
+        """
+        if "bytes" in image_example and image_example["bytes"]:
+            try:
+                return Image.open(BytesIO(image_example["bytes"])).convert("RGB")
+            except (OSError, ValueError) as e:
+                raise InvalidImageError(f"Cannot decode image bytes: {e}")
+        if "path" in image_example and image_example["path"]:
+            try:
+                return Image.open(image_example["path"]).convert("RGB")
+            except (OSError, ValueError) as e:
+                raise InvalidImageError(f"Cannot open image path '{image_example['path']}': {e}")
+        try:
+            image_array = np.array(image_example)
+            if image_array.ndim == 2:
+                return Image.fromarray(image_array).convert("RGB")
+            if image_array.ndim == 3:
+                return Image.fromarray(image_array).convert("RGB")
+        except (TypeError, ValueError) as e:
+            raise InvalidImageError(f"Cannot convert image to array: {e}")
+
+        raise InvalidImageError("Unsupported image example format")
+
+    def _process_single_dataset_example(
+            self, example: dict, new_column_name: str
+    ) -> dict:
+        """
+        Process a single example from the dataset.
+
+        :param example: Dataset example with 'image' and 'xml' fields
+        :param new_column_name: Name of column to store result
+        :return: Modified example with segmented XML
+        """
+        logger.debug(f"Processing single dataset example")
+        image_example = example["image"]["bytes"] if "bytes" in example["image"] else None
+        if image_example is None:
+            raise InvalidImageError("No image bytes found in dataset example")
+        logger.debug(f"Type of image example: {type(image_example)}")
+        if "xml" not in example and "xml_content" in example:
+            xml_content = example["xml_content"]
+        elif "xml" in example:
+            xml_content = example["xml"]
+        else:
+            logger.error("No XML content found in dataset example")
+            raise ValueError("Dataset example must contain 'xml' or 'xml_content' field")
+        xml_bytes = xml_content.encode("utf-8")
+        logger.debug(f"Processing XML bytes: {len(xml_bytes)}")
+
+        # Parse XML
+        logger.debug(f"Parse example")
+        try:
+            xml_etree = XMLUtils.safe_parse_xml(xml_bytes)
+        except InvalidXMLError as e:
+            logger.error(f"Invalid XML in dataset example: {e}")
+            example[new_column_name] = None
+            return example
+
+        # Segment the image
+        try:
+            logger.debug("Running segmentation on image")
+            segmented_etree = self.segment(image=image_example, xml_etree=xml_etree)
+
+            # Serialize result
+            logger.debug("Segmentation succeeded, serializing result")
+            if segmented_etree is not None:
+                example[new_column_name] = XMLUtils.serialize_xml(segmented_etree)
+            else:
+                example[new_column_name] = None
+
+        except InvalidImageError as e:
+            logger.error(f"Invalid image in dataset example: {e}")
+            example[new_column_name] = None
+        except InvalidXMLError as e:
+            logger.error(f"Invalid XML in dataset example: {e}")
+            example[new_column_name] = None
+        except SegmentationError as e:
+            logger.error(f"Segmentation error in dataset example: {e}")
+            example[new_column_name] = None
+        except Exception as e:
+            logger.error(f"Unexpected error segmenting image: {e}")
+            example[new_column_name] = None
+
+        return example
+
+    def segment_dataset(
+            self, dataset: datasets.Dataset, new_column_name: str | None = None
+    ) -> datasets.Dataset:
+        """
+        Segment a HuggingFace dataset with the loaded model.
+
+        Processes each example in the dataset, applying segmentation to images
+        and updating the XML annotations.
+
+        :param dataset: HuggingFace dataset with 'image' and 'xml' columns
+        :param new_column_name: Column name for segmented XML (default: 'xml')
+        :return: Dataset with segmented XML
+        :raises ValueError: If required columns are missing
+        """
+        if not isinstance(dataset, datasets.Dataset):
+            raise ValueError("Input must be a HuggingFace Dataset")
+
+        logger.debug(f"Segmenting dataset with columns: {dataset.column_names}")
+
+        if "image" not in dataset.column_names:
+            raise ValueError("Dataset must contain 'image' column")
+        elif "xml" not in dataset.column_names and "xml_content" not in dataset.column_names:
+            raise ValueError("Dataset must contain 'xml' or 'xml_content' column")
+
+        new_column_name = new_column_name if new_column_name else "xml"
+
+        # Map the processing function to all examples
+        logger.debug("Call dataset.map with processing function")
+        segmented_dataset = dataset.map(
+            lambda example: self._process_single_dataset_example(
+                example, new_column_name
+            )
+        )
+        return segmented_dataset
+
+
+class SegmenterKrakenLinemasks(Segmenter):
+    """
+    Kraken Linemask Segmenter.
+    Use kraken's default blla model to predict baselines and line masks for existing text lines in the XML.
+
+    :param config: SegmenterBaseConfig instance with options for baselines and linemasks.
+    """
+
+    def __init__(self, config: SegmenterBaseConfig) -> None:
+        super().__init__()
+        self.baselines = config.baselines
+        self.kraken_linemasks = config.kraken_linemasks
+
+    def segment(
+            self, image: bytes, xml_etree: ET.Element | None = None
+    ) -> ET.Element | None:
+        """
+        Segment an image by adding baselines and linemasks using kraken's default blla model.
+
+        :param image: Path to image file or numpy array
+        :param xml_etree: XML element tree to process
+        :return: XML element tree with added baselines and linemasks, or None on failure
+        :raises InvalidImageError: If image cannot be processed
+        :raises InvalidXMLError: If XML parsing fails
+        """
+        logger.info(f"Processing image for baselines and linemasks")
+
+        if xml_etree is None:
+            logger.error("No XML provided for baseline/linemask processing")
+            return None
+
+        namespace = XMLUtils.get_xml_namespace(xml_etree)
+        if xml_etree.findall(".//ns:Baseline", namespaces=namespace) is None:
+            logger.warning("No TextLines with Baselines found in XML; predicting baselines")
+            self.baselines = True
+
+        # Add baselines if configured
+        if self.baselines:
+            xml_etree = BaselineUtils.predict_kraken_baselines(
+                image, xml_etree, namespace
+            )
+
+        # Add line masks if configured
+        if self.kraken_linemasks:
+            xml_etree = BaselineUtils.calc_and_add_linemasks_to_textlines(
+                image, xml_etree, namespace
+            )
+
+        return xml_etree
+
+
+class SegmenterYolo(Segmenter):
     """
     YOLO-based Segmenter.
 
@@ -174,22 +349,41 @@ class SegmenterYOLO(Segmenter):
             )
 
         logger.debug(
-            yaml.dump(self.htrflowConfig, default_flow_style=False, sort_keys=False)
+            yaml.dump(
+                self.htrflowConfig, sort_keys=False,  # default_flow_style=False,
+            )
         )
         self.htrflowConfig = yaml.safe_load(yaml.dump(self.htrflowConfig))
         # Create the htrflow pipeline
         self.pipeline = Pipeline.from_config(self.htrflowConfig)
 
     @staticmethod
-    def _create_and_validate_collection(image: str | np.ndarray) -> Collection:
+    def _create_and_validate_collection(image: bytes | np.ndarray) -> Collection:
         """
         Create and validate a collection from an image.
 
-        :param image: Image path or numpy array
+        :param image: Image bytes or numpy array
         :return: Validated Collection object
         :raises InvalidImageError: If collection cannot be created
         :raises EmptyCollectionError: If no pages found in collection
         """
+        try:
+            if isinstance(image, bytes):
+                pil_image = Image.open(BytesIO(image)).convert("RGB")
+            else:
+                pil_image = Image.fromarray(image)
+            with tempfile.NamedTemporaryFile(
+                    prefix=TEMP_IMAGE_PREFIX, suffix=".jpg", delete=False
+            ) as temp_file:
+                pil_image.save(temp_file.name, format="JPEG", quality=DEFAULT_JPEG_QUALITY)
+                image_path = temp_file.name
+        except (OSError, ValueError) as e:
+            raise InvalidImageError(f"Cannot process image: {e}")
+
+        if image_path is None:
+            raise InvalidImageError("Failed to create temporary image file")
+        image = image_path
+
         try:
             collection = Collection(paths=[image])
         except (OSError, FileNotFoundError) as e:
@@ -224,7 +418,7 @@ class SegmenterYOLO(Segmenter):
         return XMLUtils.safe_parse_xml(xml_content)
 
     def _apply_postprocessing(
-            self, xml_etree: ET.Element, image: str | np.ndarray
+            self, xml_etree: ET.Element, image: str | bytes | np.ndarray
     ) -> ET.Element:
         """
         Apply post-processing steps to the segmented XML.
@@ -247,7 +441,7 @@ class SegmenterYOLO(Segmenter):
         # Add line masks if configured
         if self.kraken_linemasks:
             namespace = XMLUtils.get_xml_namespace(xml_etree)
-            xml_etree = BaselineUtils.add_linemasks_to_textlines(
+            xml_etree = BaselineUtils.calc_and_add_linemasks_to_textlines(
                 image, xml_etree, namespace
             )
 
@@ -281,7 +475,7 @@ class SegmenterYOLO(Segmenter):
             return new_etree
 
     def segment(
-            self, image: str | np.ndarray, xml_etree: ET.Element | None = None
+            self, image: bytes | np.ndarray, xml_etree: ET.Element | None = None
     ) -> ET.Element | None:
         """
         Segment an image using the loaded YOLO model.
@@ -300,7 +494,7 @@ class SegmenterYOLO(Segmenter):
         :raises EmptyCollectionError: If no pages found
         :raises InvalidXMLError: If XML parsing fails
         """
-        logger.info(f"Segmenting image {image}")
+        logger.info(f"Segmenting image")
 
         # Step 1: Create and validate collection
         collection = self._create_and_validate_collection(image)
@@ -313,91 +507,3 @@ class SegmenterYOLO(Segmenter):
 
         # Step 4: Merge or finalize
         return self._merge_or_finalize_xml(new_etree, xml_etree)
-
-    def _process_single_dataset_example(
-            self, example: dict, new_column_name: str
-    ) -> dict:
-        """
-        Process a single example from the dataset.
-
-        :param example: Dataset example with 'image' and 'xml' fields
-        :param new_column_name: Name of column to store result
-        :return: Modified example with segmented XML
-        """
-        image = np.array(example["image"])
-        xml_content = example["xml"]
-        xml_bytes = xml_content.encode("utf-8")
-
-        # Parse XML
-        try:
-            xml_etree = XMLUtils.safe_parse_xml(xml_bytes)
-        except InvalidXMLError as e:
-            logger.error(f"Invalid XML in dataset example: {e}")
-            example[new_column_name] = None
-            return example
-
-        # Process with temporary file
-        with tempfile.NamedTemporaryFile(
-                mode="w+b", suffix=".jpg", prefix=TEMP_IMAGE_PREFIX, delete=True
-        ) as tmp_file:
-            try:
-                # Save image to temporary file
-                try:
-                    Image.fromarray(image).save(
-                        tmp_file.name, "JPEG", quality=DEFAULT_JPEG_QUALITY
-                    )
-                except (OSError, ValueError) as e:
-                    raise InvalidImageError(
-                        f"Cannot save image array to temporary file: {e}"
-                    )
-
-                # Segment the image
-                segmented_etree = self.segment(image=tmp_file.name, xml_etree=xml_etree)
-
-                # Serialize result
-                if segmented_etree is not None:
-                    example[new_column_name] = XMLUtils.serialize_xml(segmented_etree)
-                else:
-                    example[new_column_name] = None
-
-            except InvalidImageError as e:
-                logger.error(f"Invalid image in dataset example: {e}")
-                example[new_column_name] = None
-            except InvalidXMLError as e:
-                logger.error(f"Invalid XML in dataset example: {e}")
-                example[new_column_name] = None
-            except SegmentationError as e:
-                logger.error(f"Segmentation error in dataset example: {e}")
-                example[new_column_name] = None
-            except Exception as e:
-                logger.error(f"Unexpected error segmenting image: {e}")
-                example[new_column_name] = None
-
-        return example
-
-    def segment_dataset(
-            self, dataset: datasets.Dataset, new_column_name: str | None = None
-    ) -> datasets.Dataset:
-        """
-        Segment a HuggingFace dataset with the loaded model.
-
-        Processes each example in the dataset, applying segmentation to images
-        and updating the XML annotations.
-
-        :param dataset: HuggingFace dataset with 'image' and 'xml' columns
-        :param new_column_name: Column name for segmented XML (default: 'xml')
-        :return: Dataset with segmented XML
-        :raises ValueError: If required columns are missing
-        """
-        if "image" not in dataset.column_names or "xml" not in dataset.column_names:
-            raise ValueError("Dataset must contain 'image' and 'xml' columns")
-
-        new_column_name = new_column_name if new_column_name else "xml"
-
-        # Map the processing function to all examples
-        segmented_dataset = dataset.map(
-            lambda example: self._process_single_dataset_example(
-                example, new_column_name
-            )
-        )
-        return segmented_dataset

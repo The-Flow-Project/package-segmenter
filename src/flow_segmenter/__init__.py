@@ -3,7 +3,7 @@ Flow Segmenter Package Initialization
 """
 
 from .baseline_utils import BaselineUtils
-from .config import SegmenterConfig
+from .config import SegmenterConfig, SegmenterBaseConfig
 from .exceptions import (
     EmptyCollectionError,
     InvalidImageError,
@@ -12,7 +12,7 @@ from .exceptions import (
     PageNotFoundError,
     SegmentationError,
 )
-from .segmenter import SegmenterYOLO
+from .segmenter import SegmenterKrakenLinemasks, SegmenterYolo
 from .xml_utils import XMLUtils
 
 __version__ = "0.1.5"
@@ -21,6 +21,8 @@ __authors__ = ["l0rn0r"]
 
 __all__ = [
     "SegmenterConfig",
+    "SegmenterBaseConfig",
+    "SegmenterKrakenLinemasks",
     "SegmenterYOLO",
     "SegmentationError",
     "PageNotFoundError",
