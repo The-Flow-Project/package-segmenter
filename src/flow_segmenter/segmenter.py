@@ -2,22 +2,23 @@
 Package to recognize text segmentation
 """
 
-import logging
-import tempfile
-from io import BytesIO
-
 # ===============================================================================
 # IMPORT STATEMENTS
 # ===============================================================================
+
+import logging
+import copy
+import tempfile
+from io import BytesIO
+
 from abc import ABC, abstractmethod
+from typing import Any
 
 import datasets
 import lxml.etree as ET
 import numpy as np
 import torch
 import yaml
-from htrflow.pipeline.pipeline import Pipeline
-from htrflow.serialization.serialization import PageXML
 
 from htrflow.volume.volume import Collection
 from PIL import Image
@@ -170,33 +171,33 @@ class Segmenter(ABC):
             xml_etree = XMLUtils.safe_parse_xml(xml_bytes)
         except InvalidXMLError as e:
             logger.error(f"Invalid XML in dataset example: {e}")
-            example[new_column_name] = None
+            example[new_column_name] = xml_content
             return example
 
         # Segment the image
         try:
             logger.debug("Running segmentation on image")
             segmented_etree = self.segment(image=image_example, xml_etree=xml_etree)
-
             # Serialize result
             logger.debug("Segmentation succeeded, serializing result")
             if segmented_etree is not None:
                 example[new_column_name] = XMLUtils.serialize_xml(segmented_etree)
             else:
-                example[new_column_name] = None
+                logger.warning("Segmentation returned None; falling back to original XML")
+                example[new_column_name] = xml_content
 
         except InvalidImageError as e:
             logger.error(f"Invalid image in dataset example: {e}")
-            example[new_column_name] = None
+            example[new_column_name] = xml_content
         except InvalidXMLError as e:
             logger.error(f"Invalid XML in dataset example: {e}")
-            example[new_column_name] = None
+            example[new_column_name] = xml_content
         except SegmentationError as e:
             logger.error(f"Segmentation error in dataset example: {e}")
-            example[new_column_name] = None
+            example[new_column_name] = xml_content
         except Exception as e:
             logger.error(f"Unexpected error segmenting image: {e}")
-            example[new_column_name] = None
+            example[new_column_name] = xml_content
 
         return example
 
@@ -295,6 +296,8 @@ class SegmenterYolo(Segmenter):
     """
 
     def __init__(self, config: SegmenterConfig) -> None:
+        from htrflow.pipeline.pipeline import Pipeline
+
         super().__init__()
         self.model_names = (
             [config.model_names]
@@ -312,7 +315,7 @@ class SegmenterYolo(Segmenter):
         self.order_lines = config.order_lines
 
         # Initiate htrflow pipeline htrflowConfig
-        self.htrflowConfig = {"steps": []}
+        self.htrflowConfig: dict[str, Any] = {"steps": []}
 
         # Add the segmentation steps to the pipeline htrflowConfig
         for model, batchsize in zip(self.model_names, self.batch_sizes):
@@ -349,13 +352,14 @@ class SegmenterYolo(Segmenter):
             )
 
         logger.debug(
-            yaml.dump(
+            yaml.safe_dump(
                 self.htrflowConfig, sort_keys=False,  # default_flow_style=False,
             )
         )
-        self.htrflowConfig = yaml.safe_load(yaml.dump(self.htrflowConfig))
+
         # Create the htrflow pipeline
-        self.pipeline = Pipeline.from_config(self.htrflowConfig)
+        config_for_pipeline = copy.deepcopy(self.htrflowConfig)
+        self.pipeline = Pipeline.from_config(config_for_pipeline)
 
     @staticmethod
     def _create_and_validate_collection(image: bytes | np.ndarray) -> Collection:
@@ -398,7 +402,7 @@ class SegmenterYolo(Segmenter):
 
         return collection
 
-    def _run_pipeline_and_serialize(self, collection: Collection) -> ET.Element:
+    def _run_pipeline_and_serialize(self, collection: Collection) -> ET.Element | None:
         """
         Run the segmentation pipeline and serialize the result to XML.
 
@@ -406,16 +410,24 @@ class SegmenterYolo(Segmenter):
         :return: XML element tree of the segmented result
         :raises InvalidXMLError: If XML parsing fails
         """
+        from htrflow.serialization.serialization import PageXML
         serializer = PageXML()
         collection = self.pipeline.run(collection)
+        logger.debug("Serializing collection to XML")
+        serialized = serializer.serialize_collection(collection)
 
         logger.debug(f"Collection: {collection}")
-        logger.debug("#" * 20 + " START Serialized PageXML")
-        logger.debug(serializer.serialize_collection(collection)[0][0].encode())
-        logger.debug("#" * 20 + " END Serialized PageXML")
+        logger.debug(f"Serialized Collection: {serialized}")
+        if serialized is None or len(serialized) == 0 or len(serialized[0]) == 0:
+            logger.error("Pipeline did not produce any serialized output")
+            return None
+        else:
+            logger.debug("#" * 20 + " START Serialized PageXML")
+            logger.debug(serializer.serialize_collection(collection)[0][0].encode())
+            logger.debug("#" * 20 + " END Serialized PageXML")
 
-        xml_content = serializer.serialize_collection(collection)[0][0].encode()
-        return XMLUtils.safe_parse_xml(xml_content)
+            xml_content = serializer.serialize_collection(collection)[0][0].encode()
+            return XMLUtils.safe_parse_xml(xml_content)
 
     def _apply_postprocessing(
             self, xml_etree: ET.Element, image: str | bytes | np.ndarray
@@ -458,21 +470,29 @@ class SegmenterYolo(Segmenter):
         :return: Final XML element tree
         """
         if original_etree is not None:
-            # Merge with existing XML
-            logger.debug("Merging with existing XML")
-            xml_namespace_old = XMLUtils.get_xml_namespace(original_etree)
-            xml_namespace_new = XMLUtils.get_xml_namespace(new_etree)
-            return XMLUtils.merge_xml_pages(
-                existing_etree=original_etree,
-                new_etree=new_etree,
-                namespace_existing=xml_namespace_old,
-                namespace_new=xml_namespace_new,
-            )
+            if new_etree is None:
+                logger.warning("Segmentation produced no XML; returning original XML")
+                return original_etree
+            else:
+                # Merge with existing XML
+                logger.debug("Merging with existing XML")
+                xml_namespace_old = XMLUtils.get_xml_namespace(original_etree)
+                xml_namespace_new = XMLUtils.get_xml_namespace(new_etree)
+                return XMLUtils.merge_xml_pages(
+                    existing_etree=original_etree,
+                    new_etree=new_etree,
+                    namespace_existing=xml_namespace_old,
+                    namespace_new=xml_namespace_new,
+                )
         else:
-            # Add creator metadata if configured
-            if self.creator is not None:
-                new_etree = XMLUtils.add_creator_metadata(new_etree, self.creator)
-            return new_etree
+            if new_etree is None:
+                logger.error("Segmentation produced no XML and no original XML provided")
+                raise InvalidXMLError("No XML produced from segmentation and no original XML to fall back on")
+            else:
+                # Add creator metadata if configured
+                if self.creator is not None:
+                    new_etree = XMLUtils.add_creator_metadata(new_etree, self.creator)
+                return new_etree
 
     def segment(
             self, image: bytes | np.ndarray, xml_etree: ET.Element | None = None
@@ -503,7 +523,9 @@ class SegmenterYolo(Segmenter):
         new_etree = self._run_pipeline_and_serialize(collection)
 
         # Step 3: Apply post-processing
-        new_etree = self._apply_postprocessing(new_etree, image)
+        if new_etree is not None:
+            new_etree = self._apply_postprocessing(new_etree, image)
 
         # Step 4: Merge or finalize
-        return self._merge_or_finalize_xml(new_etree, xml_etree)
+        new_element = self._merge_or_finalize_xml(new_etree, xml_etree)
+        return new_element

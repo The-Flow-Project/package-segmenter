@@ -23,7 +23,7 @@ __all__ = [
     "SegmenterConfig",
     "SegmenterBaseConfig",
     "SegmenterKrakenLinemasks",
-    "SegmenterYOLO",
+    "SegmenterYolo",
     "SegmentationError",
     "PageNotFoundError",
     "InvalidImageError",
