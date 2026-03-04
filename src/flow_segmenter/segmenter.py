@@ -281,9 +281,12 @@ class SegmenterKrakenLinemasks(Segmenter):
 
         # Add line masks if configured
         if self.kraken_linemasks:
-            xml_etree = BaselineUtils.calc_and_add_linemasks_to_textlines(
-                image, xml_etree, namespace
-            )
+            if xml_etree.findall(".//ns:TextLine", namespaces=namespace) is None:
+                logger.warning("No TextLines found in XML; cannot add linemasks")
+            else:
+                xml_etree = BaselineUtils.calc_and_add_linemasks_to_textlines(
+                    image, xml_etree, namespace
+                )
 
         return xml_etree
 

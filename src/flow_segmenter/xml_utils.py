@@ -32,6 +32,7 @@ class XMLUtils:
             new_etree: ET.Element,
             namespace_existing: dict[str, str],
             namespace_new: dict[str, str],
+            remove_namespaces: bool = True,
     ) -> ET.Element:
         """
         Merge two PageXML documents by replacing the <Page> element.
@@ -68,6 +69,9 @@ class XMLUtils:
         # Copy all elements from new page to existing page
         for element in new_page:
             existing_page.append(copy.deepcopy(element))
+
+        if remove_namespaces:
+            existing_etree = XMLUtils._remove_namespaces(existing_etree)
 
         return existing_etree
 
@@ -125,7 +129,7 @@ class XMLUtils:
         for tregion in textregions:
             id_tregion = tregion.attrib.get("id", "")
             if id_tregion and "textline" in id_tregion.lower():
-                tregion.tag = f'{{{namespace["ns"]}}}TextLine'
+                tregion.tag = f'TextLine'
                 converted_count += 1
 
         if converted_count > 0:
@@ -171,3 +175,20 @@ class XMLUtils:
             return ET.tostring(xml_etree, encoding=encoding).decode(encoding)
         except (ET.XMLSyntaxError, TypeError) as e:
             raise InvalidXMLError(f"Cannot serialize XML to string: {e}")
+
+    @staticmethod
+    def _remove_namespaces(xml_etree: ET.Element) -> ET.Element:
+        """
+        Remove namespaces from an XML element tree.
+
+        :param xml_etree: XML element tree to modify
+        :return: Modified XML element tree without namespaces
+        """
+        for elem in xml_etree.iter():
+            elem.tag = ET.QName(elem).localname
+            if elem.prefix:
+                elem.attrib.pop('xmlns:' + elem.prefix, None)
+            else:
+                elem.attrib.pop('xmlns:', None)
+        ET.cleanup_namespaces(xml_etree)
+        return xml_etree

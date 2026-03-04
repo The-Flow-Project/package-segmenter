@@ -275,7 +275,7 @@ class TestAddLineMasksToTextlines:
         # Mock mask calculation
         mock_calc_env.return_value = [[(100, 100), (200, 100), (200, 150), (100, 150)]]
 
-        result = BaselineUtils.add_linemasks_to_textlines(
+        result = BaselineUtils.calc_and_add_linemasks_to_textlines(
             mock_image_file, xml, mock_namespace
         )
 
@@ -302,7 +302,7 @@ class TestAddLineMasksToTextlines:
         mock_calc_env.side_effect = Exception("Calculation error")
 
         # Should not crash, just skip the line
-        result = BaselineUtils.add_linemasks_to_textlines(
+        result = BaselineUtils.calc_and_add_linemasks_to_textlines(
             mock_image_file, xml, mock_namespace
         )
 
