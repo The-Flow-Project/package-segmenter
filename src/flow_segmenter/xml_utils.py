@@ -5,7 +5,7 @@ XML Utility functions for PageXML manipulation.
 import copy
 import logging
 
-import lxml.etree as ET
+import lxml.etree as et
 
 from .exceptions import InvalidXMLError, PageNotFoundError
 
@@ -16,7 +16,7 @@ class XMLUtils:
     """Utility class for XML operations on PageXML documents."""
 
     @staticmethod
-    def get_xml_namespace(xml_etree: ET.Element) -> dict[str, str]:
+    def get_xml_namespace(xml_etree: et.Element) -> dict[str, str]:
         """
         Extract the namespace from an XML element.
 
@@ -28,12 +28,12 @@ class XMLUtils:
 
     @staticmethod
     def merge_xml_pages(
-            existing_etree: ET.Element,
-            new_etree: ET.Element,
+            existing_etree: et.Element,
+            new_etree: et.Element,
             namespace_existing: dict[str, str],
             namespace_new: dict[str, str],
             remove_namespaces: bool = True,
-    ) -> ET.Element:
+    ) -> et.Element:
         """
         Merge two PageXML documents by replacing the <Page> element.
 
@@ -44,6 +44,7 @@ class XMLUtils:
         :param new_etree: New XML tree containing the updated <Page>
         :param namespace_existing: Namespace dict of existing XML
         :param namespace_new: Namespace dict of new XML
+        :param remove_namespaces: Whether to remove namespaces from the result
         :return: Modified existing_etree with new <Page> element
         :raises PageNotFoundError: If <Page> element is not found in either XML
         """
@@ -66,19 +67,19 @@ class XMLUtils:
         for child in list(existing_page):
             existing_page.remove(child)
 
+        if remove_namespaces:
+            new_page = XMLUtils._remove_namespaces(new_page)
+
         # Copy all elements from new page to existing page
         for element in new_page:
             existing_page.append(copy.deepcopy(element))
-
-        if remove_namespaces:
-            existing_etree = XMLUtils._remove_namespaces(existing_etree)
 
         return existing_etree
 
     @staticmethod
     def add_creator_metadata(
-            xml_etree: ET.Element, creator: str, namespace: dict[str, str] | None = None
-    ) -> ET.Element:
+            xml_etree: et.Element, creator: str, namespace: dict[str, str] | None = None
+    ) -> et.Element:
         """
         Add creator information to the metadata of a PageXML document.
 
@@ -93,12 +94,12 @@ class XMLUtils:
         metadata = xml_etree.find(".//ns:Metadata", namespaces=namespace)
 
         if metadata is None:
-            metadata = ET.Element("Metadata", nsmap=namespace)
+            metadata = et.Element("Metadata", nsmap=namespace)
             xml_etree.insert(0, metadata)
 
         creator_el = xml_etree.find(".//ns:Creator", namespaces=namespace)
         if creator_el is None:
-            creator_el = ET.Element("Creator")
+            creator_el = et.Element("Creator")
             metadata.insert(0, creator_el)
 
         creator_el.text = creator
@@ -108,8 +109,8 @@ class XMLUtils:
 
     @staticmethod
     def convert_textregions_to_textlines(
-            xml_etree: ET.Element, namespace: dict[str, str] | None = None
-    ) -> ET.Element:
+            xml_etree: et.Element, namespace: dict[str, str] | None = None
+    ) -> et.Element:
         """
         Convert TextRegion elements to TextLine if their ID contains 'textline'.
 
@@ -138,7 +139,7 @@ class XMLUtils:
         return xml_etree
 
     @staticmethod
-    def safe_parse_xml(xml_content: bytes, encoding: str = "utf-8") -> ET.Element:
+    def safe_parse_xml(xml_content: bytes, encoding: str = "utf-8") -> et.Element:
         """
         Safely parse XML content with security measures against XXE attacks.
 
@@ -148,9 +149,9 @@ class XMLUtils:
         :raises InvalidXMLError: If XML parsing fails
         """
         try:
-            return ET.fromstring(
+            return et.fromstring(
                 xml_content,
-                parser=ET.XMLParser(
+                parser=et.XMLParser(
                     encoding=encoding,
                     ns_clean=True,
                     compact=False,
@@ -158,11 +159,11 @@ class XMLUtils:
                     # no_network=True,  # Disable network access
                 ),
             )
-        except ET.XMLSyntaxError as e:
+        except et.XMLSyntaxError as e:
             raise InvalidXMLError(f"Failed to parse XML: {e}")
 
     @staticmethod
-    def serialize_xml(xml_etree: ET.Element, encoding: str = "utf-8") -> str:
+    def serialize_xml(xml_etree: et.Element, encoding: str = "utf-8") -> str:
         """
         Serialize XML element tree to string.
 
@@ -172,12 +173,12 @@ class XMLUtils:
         :raises InvalidXMLError: If serialization fails
         """
         try:
-            return ET.tostring(xml_etree, encoding=encoding).decode(encoding)
-        except (ET.XMLSyntaxError, TypeError) as e:
+            return et.tostring(xml_etree, encoding=encoding).decode(encoding)
+        except (et.XMLSyntaxError, TypeError) as e:
             raise InvalidXMLError(f"Cannot serialize XML to string: {e}")
 
     @staticmethod
-    def _remove_namespaces(xml_etree: ET.Element) -> ET.Element:
+    def _remove_namespaces(xml_etree: et.Element) -> et.Element:
         """
         Remove namespaces from an XML element tree.
 
@@ -185,10 +186,10 @@ class XMLUtils:
         :return: Modified XML element tree without namespaces
         """
         for elem in xml_etree.iter():
-            elem.tag = ET.QName(elem).localname
+            elem.tag = et.QName(elem).localname
             if elem.prefix:
                 elem.attrib.pop('xmlns:' + elem.prefix, None)
             else:
                 elem.attrib.pop('xmlns:', None)
-        ET.cleanup_namespaces(xml_etree)
+        et.cleanup_namespaces(xml_etree)
         return xml_etree
