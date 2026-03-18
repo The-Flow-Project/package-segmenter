@@ -2,7 +2,7 @@
 Pydantic Model for SegmenterConfig.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -42,6 +42,11 @@ class SegmenterConfig(SegmenterBaseConfig):
     textline_check: bool = Field(
         True,
         description="Check textline IDs and convert TextRegions to TextLines if ID contains 'textline'",
+    )
+    load_existing_segmentation: bool = Field(
+        False,
+        description="Whether to load the existing segmentation from the XML file before using the segmenter."
+                    "Makes sense, if you use a line recognition model and you want to keep the regions (default False)."
     )
     yolo_args: dict[str, Any] | None = Field(
         None,

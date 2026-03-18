@@ -36,6 +36,7 @@ dependencies = [
     "pyyaml",
     "rtree",
     "datasets",
+    "pagexml-tools>=0.5.0",
 ]
 keywords = [
     "flow-project",
@@ -159,4 +160,12 @@ exclude_lines = [
 ]
 
 [tool.setuptools.dynamic]
-version = { attr = "flow_segmenter.__version__.__version__" }
+version = { attr = "flow_segmenter.__version__" }
+
+[dependency-groups]
+dev = [
+    "ipywidgets>=8.1.8",
+    "jupyter>=1.1.1",
+    "jupyterlab>=4.5.5",
+    "notebook>=7.5.4",
+]

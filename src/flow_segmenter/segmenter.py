@@ -21,6 +21,8 @@ import torch
 import yaml
 
 from htrflow.volume.volume import Collection
+from htrflow.results import Result
+from pagexml.parser import parse_pagexml_file
 from PIL import Image
 
 from .baseline_utils import BaselineUtils
@@ -315,6 +317,7 @@ class SegmenterYolo(Segmenter):
         self.baselines = config.baselines
         self.kraken_linemasks = [config.kraken_linemasks if self.baselines else False]
         self.textline_check = config.textline_check
+        self.load_existing_segmentation = config.load_existing_segmentation
         self.order_lines = config.order_lines
 
         # Initiate htrflow pipeline htrflowConfig
@@ -365,14 +368,16 @@ class SegmenterYolo(Segmenter):
         self.pipeline = Pipeline.from_config(config_for_pipeline)
 
     @staticmethod
-    def _create_and_validate_collection(image: bytes | np.ndarray) -> Collection:
+    def _create_and_validate_collection(image: bytes | np.ndarray, xml_content: str | None) -> Collection:
         """
         Create and validate a collection from an image.
 
         :param image: Image bytes or numpy array
+        :param xml_content: XML string to parse and add to the collection (optional)
         :return: Validated Collection object
         :raises InvalidImageError: If collection cannot be created
         :raises EmptyCollectionError: If no pages found in collection
+        :raises SegmentationError: If collection cannot be created
         """
         try:
             if isinstance(image, bytes):
@@ -402,6 +407,28 @@ class SegmenterYolo(Segmenter):
             error_msg = f"No pages found in the collection for image {image}"
             logger.error(error_msg)
             raise EmptyCollectionError(error_msg)
+
+        try:
+            if xml_content:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as tmp_file:
+                    tmp_file.write(xml_content)
+                    tmp_path = tmp_file.name
+
+                page = parse_pagexml_file(tmp_path)
+
+                if page is None:
+                    result = Result()
+                else:
+                    shape = (page.coords.height, page.coords.width)
+                    polygons = [region.coords.points for region in page.get_text_regions_in_reading_order()]
+                    result = Result.segmentation_result(
+                        orig_shape=shape,
+                        metadata={},
+                        polygons=polygons,
+                    )
+                collection.update([result])
+        except (OSError, ValueError) as e:
+            raise SegmentationError(f"Cannot process provided XML content: {e}")
 
         return collection
 
@@ -520,7 +547,11 @@ class SegmenterYolo(Segmenter):
         logger.info(f"Segmenting image")
 
         # Step 1: Create and validate collection
-        collection = self._create_and_validate_collection(image)
+        if self.load_existing_segmentation:
+            xml_content = XMLUtils.serialize_xml(xml_etree) if xml_etree is not None else None
+        else:
+            xml_content = None
+        collection = self._create_and_validate_collection(image, xml_content)
 
         # Step 2: Run pipeline and serialize to XML
         new_etree = self._run_pipeline_and_serialize(collection)

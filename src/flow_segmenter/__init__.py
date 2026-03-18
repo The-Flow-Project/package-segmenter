@@ -15,9 +15,9 @@ from .exceptions import (
 from .segmenter import SegmenterKrakenLinemasks, SegmenterYolo
 from .xml_utils import XMLUtils
 
-__version__ = "0.2.0"
+__version__ = "0.2.4"
 __license__ = "MIT"
-__authors__ = ["l0rn0r"]
+__authors__ = ["jnswidmer"]
 
 __all__ = [
     "SegmenterConfig",
