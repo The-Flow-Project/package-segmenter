@@ -25,17 +25,17 @@ classifiers = [
 ]
 license = { text = "MIT" }
 dependencies = [
-    "htrflow",
-    "kraken",
+    "htrflow==0.2.5",
+    "kraken==6.0.3",
     "lxml",
     "numpy",
     "pillow",
-    "shapely",
+    "shapely>=2.0.6",
     "scipy",
     "pydantic",
     "pyyaml",
     "rtree",
-    "datasets",
+    "datasets<=4.0.0",
     "pagexml-tools>=0.5.0",
 ]
 keywords = [
