@@ -989,9 +989,9 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.10.0" },
     { name = "datasets", specifier = "<=4.0.0" },
-    { name = "htrflow", specifier = "==0.2.5" },
+    { name = "htrflow", specifier = "==0.2.6" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.13.2" },
-    { name = "kraken" },
+    { name = "kraken", specifier = "==6.0.3" },
     { name = "lxml" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
     { name = "numpy" },
@@ -1238,7 +1238,7 @@ wheels = [
 
 [[package]]
 name = "htrflow"
-version = "0.2.5"
+version = "0.2.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1256,9 +1256,9 @@ dependencies = [
     { name = "ultralytics" },
     { name = "xmlschema" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/4e/aefb4f81cdb81aab97f3736f82bc397ca1f201eb558851f29b202613861f/htrflow-0.2.5.tar.gz", hash = "sha256:5abff55a8a8115ef4480fe4d5ac41285b2c707b38e133b0ccebe38048c302128", size = 20073556, upload-time = "2025-02-14T09:58:04.329Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/50/460f7fd5ed91fd6b04f7c706cb6e83fe5cc02c352dd285d7840d64de652b/htrflow-0.2.6.tar.gz", hash = "sha256:6b27ba964af39ce9d401870357fb727e476da1877dcfb8c53a781b85eee39a9d", size = 20097385, upload-time = "2025-06-24T11:53:18.439Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/e1/40ffe13ea7fe52ec3659acd153dc8bac71c1472894b3de6f97c8d68ab72b/htrflow-0.2.5-py3-none-any.whl", hash = "sha256:589deeb3aa5b64272d4c0a53d5efafdd0989bc46f7cadce16873efb1a303829a", size = 113091, upload-time = "2025-02-14T09:58:02.053Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/14/1834aa9684fd7a47a60b2d668f819279800982cdc97d4b31c88291d6ce9b/htrflow-0.2.6-py3-none-any.whl", hash = "sha256:49755e919c6acb3faf56ba225582a932ab8bff1d9d627fc7ded75bc55e84f51c", size = 113970, upload-time = "2025-06-24T11:53:16.168Z" },
 ]
 
 [[package]]
