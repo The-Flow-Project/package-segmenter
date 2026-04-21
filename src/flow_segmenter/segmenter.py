@@ -6,16 +6,15 @@ Package to recognize text segmentation
 # IMPORT STATEMENTS
 # ===============================================================================
 
-import logging
 import copy
 import tempfile
 from io import BytesIO
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import datasets
-import lxml.etree as ET
+import lxml.etree as et
 import numpy as np
 import torch
 import yaml
@@ -35,8 +34,7 @@ from .exceptions import (
 )
 from .xml_utils import XMLUtils
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+from loguru import logger
 
 # Constants
 DEFAULT_YOLO_ARGS = {
@@ -44,7 +42,8 @@ DEFAULT_YOLO_ARGS = {
     "iou": 0.45,  # IoU threshold
     "max_det": 100,  # Maximum detections per image
     "device": (
-        "cuda" if torch.cuda.is_available() else "cpu"
+        "cuda" if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available() else "cpu"
     ),  # Device to run the model on
 }
 
@@ -66,13 +65,16 @@ class Segmenter(ABC):
     """
 
     def __init__(self):
-        self.devicename = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device = torch.device(self.devicename)
-
-        if torch.cuda.is_available():
+        if torch.backends.mps.is_available():
+            self.devicename = "mps"
+        elif torch.cuda.is_available():
+            self.devicename = "cuda"
             # Allow matrix multiplication with TensorFloat-32
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
+        else:
+            self.devicename = "cpu"
+        self.device = torch.device(self.devicename)
 
         self.model_names = None
         self.batch_size = None
@@ -80,8 +82,8 @@ class Segmenter(ABC):
 
     @abstractmethod
     def segment(
-            self, image: str | bytes, xml_etree: ET.Element | None = None
-    ) -> ET.Element | None:
+            self, image: str | bytes, xml_etree: Optional[et.Element] = None
+    ) -> Optional[et.Element]:
         """
         Method to segment the image with the loaded model
         :param image: Path to the image or numpy array
@@ -92,14 +94,14 @@ class Segmenter(ABC):
 
     def get_batchsize(
             self, batch_sizes: list[int] | int
-    ) -> int | list[int]:
+    ) -> list[int]:
         """
         Method to get the batch size of the model
         :param batch_sizes: List of batch sizes or a single batch size int
         :return: Batch size of the model
         """
         if self.model_names:
-            batch_sizes = (
+            batch_sizes: list[int] = (
                 [max(batch_sizes, MIN_BATCH_SIZE)] * len(self.model_names)
                 if isinstance(batch_sizes, int)
                 else [max(b, MIN_BATCH_SIZE) for b in batch_sizes]
@@ -153,7 +155,7 @@ class Segmenter(ABC):
         :return: Modified example with segmented XML
         """
         logger.debug(f"Processing single dataset example")
-        image_example = example["image"]["bytes"] if "bytes" in example["image"] else None
+        image_example: Optional[bytes] = example["image"]["bytes"] if "bytes" in example["image"] else None
         if image_example is None:
             raise InvalidImageError("No image bytes found in dataset example")
         logger.debug(f"Type of image example: {type(image_example)}")
@@ -204,7 +206,7 @@ class Segmenter(ABC):
         return example
 
     def segment_dataset(
-            self, dataset: datasets.Dataset, new_column_name: str | None = None
+            self, dataset: datasets.Dataset, new_column_name: str = "xml"
     ) -> datasets.Dataset:
         """
         Segment a HuggingFace dataset with the loaded model.
@@ -227,14 +229,14 @@ class Segmenter(ABC):
         elif "xml" not in dataset.column_names and "xml_content" not in dataset.column_names:
             raise ValueError("Dataset must contain 'xml' or 'xml_content' column")
 
-        new_column_name = new_column_name if new_column_name else "xml"
-
         # Map the processing function to all examples
         logger.debug("Call dataset.map with processing function")
         segmented_dataset = dataset.map(
             lambda example: self._process_single_dataset_example(
                 example, new_column_name
-            )
+            ),
+            writer_batch_size=self.batch_size if self.batch_size is not None else DEFAULT_BATCH_SIZE,
+            num_proc=1,
         )
         return segmented_dataset
 
@@ -253,8 +255,8 @@ class SegmenterKrakenLinemasks(Segmenter):
         self.kraken_linemasks = config.kraken_linemasks
 
     def segment(
-            self, image: bytes, xml_etree: ET.Element | None = None
-    ) -> ET.Element | None:
+            self, image: bytes, xml_etree: Optional[et.Element] = None
+    ) -> Optional[et.Element]:
         """
         Segment an image by adding baselines and linemasks using kraken's default blla model.
 
@@ -368,11 +370,11 @@ class SegmenterYolo(Segmenter):
         self.pipeline = Pipeline.from_config(config_for_pipeline)
 
     @staticmethod
-    def _create_and_validate_collection(image: bytes | np.ndarray, xml_content: str | None) -> Collection:
+    def _create_and_validate_collection(image_bytes: bytes | np.ndarray, xml_content: str | None) -> Collection:
         """
         Create and validate a collection from an image.
 
-        :param image: Image bytes or numpy array
+        :param image_bytes: Image bytes or numpy array
         :param xml_content: XML string to parse and add to the collection (optional)
         :return: Validated Collection object
         :raises InvalidImageError: If collection cannot be created
@@ -380,10 +382,12 @@ class SegmenterYolo(Segmenter):
         :raises SegmentationError: If collection cannot be created
         """
         try:
-            if isinstance(image, bytes):
-                pil_image = Image.open(BytesIO(image)).convert("RGB")
+            if isinstance(image_bytes, bytes):
+                pil_image = Image.open(BytesIO(image_bytes)).convert("RGB")
             else:
-                pil_image = Image.fromarray(image)
+                pil_image = Image.fromarray(image_bytes).convert("RGB")
+
+            # Save the Image temporarily
             with tempfile.NamedTemporaryFile(
                     prefix=TEMP_IMAGE_PREFIX, suffix=".jpg", delete=False
             ) as temp_file:
@@ -394,17 +398,16 @@ class SegmenterYolo(Segmenter):
 
         if image_path is None:
             raise InvalidImageError("Failed to create temporary image file")
-        image = image_path
 
         try:
-            collection = Collection(paths=[image])
+            collection = Collection(paths=[image_path])
         except (OSError, FileNotFoundError) as e:
             raise InvalidImageError(
-                f"Cannot create collection from image '{image}': {e}"
+                f"Cannot create collection from image '{image_path}': {e}"
             )
 
         if len(collection.pages) < 1:
-            error_msg = f"No pages found in the collection for image {image}"
+            error_msg = f"No pages found in the collection for image {image_path}"
             logger.error(error_msg)
             raise EmptyCollectionError(error_msg)
 
@@ -416,7 +419,7 @@ class SegmenterYolo(Segmenter):
 
                 page = parse_pagexml_file(tmp_path)
 
-                if page is None:
+                if page is None or page.coords is None:
                     result = Result()
                 else:
                     shape = (page.coords.height, page.coords.width)
@@ -432,7 +435,7 @@ class SegmenterYolo(Segmenter):
 
         return collection
 
-    def _run_pipeline_and_serialize(self, collection: Collection) -> ET.Element | None:
+    def _run_pipeline_and_serialize(self, collection: Collection) -> Optional[et.Element]:
         """
         Run the segmentation pipeline and serialize the result to XML.
 
@@ -460,8 +463,8 @@ class SegmenterYolo(Segmenter):
             return XMLUtils.safe_parse_xml(xml_content)
 
     def _apply_postprocessing(
-            self, xml_etree: ET.Element, image: str | bytes | np.ndarray
-    ) -> ET.Element:
+            self, xml_etree: et.Element, image: str | bytes | np.ndarray
+    ) -> et.Element:
         """
         Apply post-processing steps to the segmented XML.
 
@@ -490,8 +493,8 @@ class SegmenterYolo(Segmenter):
         return xml_etree
 
     def _merge_or_finalize_xml(
-            self, new_etree: ET.Element, original_etree: ET.Element | None
-    ) -> ET.Element:
+            self, new_etree: et.Element, original_etree: Optional[et.Element]
+    ) -> et.Element:
         """
         Merge with original XML or finalize the new XML with metadata.
 
@@ -525,8 +528,8 @@ class SegmenterYolo(Segmenter):
                 return new_etree
 
     def segment(
-            self, image: bytes | np.ndarray, xml_etree: ET.Element | None = None
-    ) -> ET.Element | None:
+            self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
+    ) -> Optional[et.Element]:
         """
         Segment an image using the loaded YOLO model.
 

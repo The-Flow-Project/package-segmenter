@@ -2,10 +2,9 @@
 Baseline utilities with performance optimizations.
 """
 
-import logging
 from io import BytesIO
 
-import lxml.etree as ET
+import lxml.etree as et
 import numpy as np
 import scipy.optimize as opt
 from kraken import blla
@@ -16,7 +15,7 @@ from shapely.strtree import STRtree
 
 from .exceptions import InvalidImageError
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # Constants
 BASELINE_INSERT_POSITION = 0
@@ -42,7 +41,7 @@ class BaselineUtils:
 
     @staticmethod
     def extract_masks_from_xml(
-            xml_etree: ET.Element, namespace: dict[str, str]
+            xml_etree: et.Element, namespace: dict[str, str]
     ) -> list[Polygon]:
         """
         Extract polygon masks from TextLine elements in XML.
@@ -139,7 +138,7 @@ class BaselineUtils:
     @staticmethod
     def assign_baselines_to_textlines(
             baselines: list[LineString],
-            textlines: list[ET.Element],
+            textlines: list[et.Element],
             overlap_matrix: np.ndarray,
             namespace: dict[str, str],
     ) -> None:
@@ -167,7 +166,7 @@ class BaselineUtils:
                 line_el.remove(baseline_el)
 
             # Create and insert new baseline element
-            baseline_el = ET.Element("Baseline", nsmap={"ns": namespace["ns"]})
+            baseline_el = et.Element("Baseline", nsmap={"ns": namespace["ns"]})
             line_el.insert(BASELINE_INSERT_POSITION, baseline_el)
 
             # Set baseline points
@@ -181,8 +180,8 @@ class BaselineUtils:
 
     @staticmethod
     def predict_kraken_baselines(
-            image: str | bytes | np.ndarray, xml_etree: ET.Element, namespace: dict[str, str]
-    ) -> ET.Element:
+            image: str | bytes | np.ndarray, xml_etree: et.Element, namespace: dict[str, str]
+    ) -> et.Element:
         """
         Predict baselines for text lines using Kraken with optimized matching.
 
@@ -234,8 +233,8 @@ class BaselineUtils:
 
     @staticmethod
     def calc_and_add_linemasks_to_textlines(
-            image: str | bytes | np.ndarray, xml_etree: ET.Element, namespace: dict[str, str]
-    ) -> ET.Element:
+            image: str | bytes | np.ndarray, xml_etree: et.Element, namespace: dict[str, str]
+    ) -> et.Element:
         """
         Calculate and add line masks to text lines based on their baselines.
 
@@ -310,7 +309,7 @@ class BaselineUtils:
             if coords_el is not None:
                 coords_el.attrib["points"] = mask_str
             else:
-                coords_el = ET.Element("Coords", points=mask_str, nsmap=namespace)
+                coords_el = et.Element("Coords", points=mask_str, nsmap=namespace)
                 line_el.insert(COORDS_INSERT_POSITION, coords_el)
 
         logger.info("Finished adding line masks")

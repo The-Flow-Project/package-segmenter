@@ -9,7 +9,7 @@ import lxml.etree as et
 
 from .exceptions import InvalidXMLError, PageNotFoundError
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 class XMLUtils:

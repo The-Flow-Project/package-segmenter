@@ -26,7 +26,7 @@ classifiers = [
 license = { text = "MIT" }
 dependencies = [
     "htrflow==0.2.6",
-    "kraken==6.0.3",
+    "kraken==6.0.0",
     "lxml",
     "numpy",
     "pillow",
@@ -37,6 +37,7 @@ dependencies = [
     "rtree",
     "datasets<=4.0.0",
     "pagexml-tools>=0.5.0",
+    "loguru>=0.7.3",
 ]
 keywords = [
     "flow-project",
