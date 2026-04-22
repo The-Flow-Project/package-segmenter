@@ -16,9 +16,6 @@ from .segmenter import SegmenterKrakenLinemasks, SegmenterYolo
 from .xml_utils import XMLUtils
 from .logger_config import setup_logger
 
-LOGGING_LEVEL = "DEBUG"
-setup_logger(LOGGING_LEVEL)
-
 __version__ = "0.2.4"
 __license__ = "MIT"
 __authors__ = ["jnswidmer"]
@@ -36,4 +33,5 @@ __all__ = [
     "EmptyCollectionError",
     "XMLUtils",
     "BaselineUtils",
+    "setup_logger",
 ]
