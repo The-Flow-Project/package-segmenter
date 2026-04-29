@@ -52,7 +52,7 @@ MIN_BATCH_SIZE = 1
 BASELINE_INSERT_POSITION = 0
 COORDS_INSERT_POSITION = 1
 DEFAULT_JPEG_QUALITY = 95
-TEMP_IMAGE_PREFIX = "flow_segmenter_temp_"
+TEMP_IMAGE_PREFIX = "flow_segmenter_"
 
 
 # ===============================================================================
@@ -66,6 +66,7 @@ class Segmenter(ABC):
 
     def __init__(self):
         if torch.backends.mps.is_available():
+            # Apple Silicon with Metal Performance Shaders (MPS)
             self.devicename = "mps"
         elif torch.cuda.is_available():
             self.devicename = "cuda"
@@ -338,7 +339,7 @@ class SegmenterYolo(Segmenter):
                 },
             }
             if self.yolo_args:
-                settings["generation_settings"].update(self.yolo_args)
+                settings["generation_settings"] = self.yolo_args
             self.htrflowConfig["steps"].append(
                 {
                     "step": "Segmentation",
@@ -493,7 +494,7 @@ class SegmenterYolo(Segmenter):
         return xml_etree
 
     def _merge_or_finalize_xml(
-            self, new_etree: et.Element, original_etree: Optional[et.Element]
+            self, new_etree: Optional[et.Element], original_etree: Optional[et.Element]
     ) -> et.Element:
         """
         Merge with original XML or finalize the new XML with metadata.

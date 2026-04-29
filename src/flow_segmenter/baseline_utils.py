@@ -166,7 +166,7 @@ class BaselineUtils:
                 line_el.remove(baseline_el)
 
             # Create and insert new baseline element
-            baseline_el = et.Element("Baseline", nsmap={"ns": namespace["ns"]})
+            baseline_el = et.Element("ns:Baseline", nsmap={"ns": namespace["ns"]})
             line_el.insert(BASELINE_INSERT_POSITION, baseline_el)
 
             # Set baseline points
