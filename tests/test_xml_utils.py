@@ -2,7 +2,7 @@
 Tests for flow_segmenter.xml_utils module.
 """
 
-import lxml.etree as ET
+import lxml.etree as et
 import pytest
 
 from flow_segmenter.exceptions import InvalidXMLError, PageNotFoundError
@@ -32,15 +32,15 @@ class TestGetXMLNamespace:
 
     def test_get_namespace_handles_default_namespace(self):
         """Test handling XML with default namespace."""
-        xml = ET.fromstring(b'<root xmlns="http://example.com"><child/></root>')
+        xml = et.fromstring(b'<root xmlns="http://example.com"><child/></root>')
         namespace = XMLUtils.get_xml_namespace(xml)
         assert namespace == {"ns": "http://example.com"}
 
     def test_get_namespace_does_not_modify_original(self, mock_xml_etree):
         """Test that original XML is not modified."""
-        original_str = ET.tostring(mock_xml_etree)
+        original_str = et.tostring(mock_xml_etree)
         XMLUtils.get_xml_namespace(mock_xml_etree)
-        after_str = ET.tostring(mock_xml_etree)
+        after_str = et.tostring(mock_xml_etree)
         assert original_str == after_str
 
 
@@ -49,55 +49,58 @@ class TestMergeXMLPages:
 
     def test_merge_xml_pages_replaces_page_content(self):
         """Test that merge replaces Page element content."""
-        xml1 = ET.fromstring(create_mock_xml_with_namespace().encode())
-        xml2 = ET.fromstring(create_mock_xml_with_namespace().encode())
+        xml1 = et.fromstring(create_mock_xml_with_namespace().encode())
+        xml2 = et.fromstring(create_mock_xml_with_namespace().encode())
 
         ns = XMLUtils.get_xml_namespace(xml1)
 
         # Modify xml2's page content
         page2 = xml2.find(".//ns:Page", namespaces=ns)
-        new_region = ET.SubElement(page2, "TextRegion", id="new_region")
+        if page2:
+            ns_uri = ns.get("ns")
+            new_region = et.Element("TextRegion", id="new_region")
+            new_region.tag = f"{{{ns_uri}}}TextRegion"
+            page2.append(new_region)
+        print(XMLUtils.serialize_xml(xml2))
+        print(xml2.find(".//ns:TextRegion", namespaces=ns))
 
-        result = XMLUtils.merge_xml_pages(xml1, xml2, ns, ns)
+        result = XMLUtils.merge_xml_pages(xml1, xml2)
 
         # Check that new region is in result
         result_page = result.find(".//ns:Page", namespaces=ns)
         new_regions = result_page.findall(
             './/ns:TextRegion[@id="new_region"]', namespaces=ns
         )
+        print(new_regions)
         assert len(new_regions) > 0
 
     def test_merge_xml_pages_raises_error_if_no_page_in_existing(self):
         """Test that merge raises error if no Page in existing XML."""
-        xml1 = ET.fromstring(create_mock_xml_without_page().encode())
-        xml2 = ET.fromstring(create_mock_xml_with_namespace().encode())
-
-        ns = XMLUtils.get_xml_namespace(xml1)
+        xml1 = et.fromstring(create_mock_xml_without_page().encode())
+        xml2 = et.fromstring(create_mock_xml_with_namespace().encode())
 
         with pytest.raises(PageNotFoundError, match="existing XML"):
-            XMLUtils.merge_xml_pages(xml1, xml2, ns, ns)
+            XMLUtils.merge_xml_pages(xml1, xml2)
 
     def test_merge_xml_pages_raises_error_if_no_page_in_new(self):
         """Test that merge raises error if no Page in new XML."""
-        xml1 = ET.fromstring(create_mock_xml_with_namespace().encode())
-        xml2 = ET.fromstring(create_mock_xml_without_page().encode())
-
-        ns = XMLUtils.get_xml_namespace(xml1)
+        xml1 = et.fromstring(create_mock_xml_with_namespace().encode())
+        xml2 = et.fromstring(create_mock_xml_without_page().encode())
 
         with pytest.raises(PageNotFoundError, match="new XML"):
-            XMLUtils.merge_xml_pages(xml1, xml2, ns, ns)
+            XMLUtils.merge_xml_pages(xml1, xml2)
 
     def test_merge_xml_pages_preserves_root_structure(self):
         """Test that merge preserves root structure."""
-        xml1 = ET.fromstring(create_mock_xml_with_namespace().encode())
-        xml2 = ET.fromstring(create_mock_xml_with_namespace().encode())
+        xml1 = et.fromstring(create_mock_xml_with_namespace().encode())
+        xml2 = et.fromstring(create_mock_xml_with_namespace().encode())
 
-        ns = XMLUtils.get_xml_namespace(xml1)
-        result = XMLUtils.merge_xml_pages(xml1, xml2, ns, ns)
+        result = XMLUtils.merge_xml_pages(xml1, xml2)
 
         # Root should still be PcGts
         assert "PcGts" in result.tag
         # Metadata should still be present
+        ns = XMLUtils.get_xml_namespace(result)
         metadata = result.find(".//ns:Metadata", namespaces=ns)
         assert metadata is not None
 
@@ -118,7 +121,7 @@ class TestAddCreatorMetadata:
 
     def test_add_creator_to_xml_without_metadata(self):
         """Test adding creator to XML without Metadata element."""
-        xml = ET.fromstring(
+        xml = et.fromstring(
             b'<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15">'
             b'<Page imageFilename="test.jpg"/></PcGts>'
         )
@@ -149,7 +152,7 @@ class TestConvertTextRegionsToTextLines:
 
     def test_convert_textregion_with_textline_in_id(self):
         """Test converting TextRegion with 'textline' in ID."""
-        xml = ET.fromstring(create_mock_xml_with_textline_in_id().encode())
+        xml = et.fromstring(create_mock_xml_with_textline_in_id().encode())
 
         result = XMLUtils.convert_textregions_to_textlines(xml)
 
@@ -167,7 +170,7 @@ class TestConvertTextRegionsToTextLines:
 
     def test_normal_textregion_not_converted(self):
         """Test that normal TextRegion is not converted."""
-        xml = ET.fromstring(create_mock_xml_with_textline_in_id().encode())
+        xml = et.fromstring(create_mock_xml_with_textline_in_id().encode())
 
         result = XMLUtils.convert_textregions_to_textlines(xml)
 
@@ -181,7 +184,7 @@ class TestConvertTextRegionsToTextLines:
 
     def test_convert_handles_case_insensitive(self):
         """Test that 'textline' matching is case-insensitive."""
-        xml = ET.fromstring(
+        xml = et.fromstring(
             b'<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15">'
             b'<Page><TextRegion id="TEXTLINE_1"/></Page></PcGts>'
         )
@@ -209,12 +212,8 @@ class TestSafeParseXML:
         malicious_xml = create_malicious_xxe_xml()
 
         # Should parse but not load external entity
-        result = XMLUtils.safe_parse_xml(malicious_xml.encode())
-
-        # Convert to string and check that /etc/passwd content is NOT there
-        result_str = ET.tostring(result, encoding="unicode")
-        assert "root:" not in result_str  # Would be in /etc/passwd
-        assert "/bin/bash" not in result_str
+        with pytest.raises(InvalidXMLError, match=r"Failed to parse XML \(invalid or malicious\).*"):
+            XMLUtils.safe_parse_xml(malicious_xml.encode())
 
     def test_safe_parse_invalid_xml_raises_error(self):
         """Test that invalid XML raises InvalidXMLError."""
@@ -246,7 +245,7 @@ class TestSerializeXML:
         result = XMLUtils.serialize_xml(mock_xml_etree)
 
         # Reparse and check structure
-        reparsed = ET.fromstring(result.encode())
+        reparsed = et.fromstring(result.encode())
         ns = XMLUtils.get_xml_namespace(reparsed)
 
         page = reparsed.find(".//ns:Page", namespaces=ns)

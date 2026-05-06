@@ -274,7 +274,7 @@ class SegmenterKrakenLinemasks(Segmenter):
             return None
 
         namespace = XMLUtils.get_xml_namespace(xml_etree)
-        if xml_etree.findall(".//ns:Baseline", namespaces=namespace) is None:
+        if not xml_etree.findall(".//ns:Baseline", namespaces=namespace):
             logger.warning("No TextLines with Baselines found in XML; predicting baselines")
             self.baselines = True
 
@@ -286,7 +286,7 @@ class SegmenterKrakenLinemasks(Segmenter):
 
         # Add line masks if configured
         if self.kraken_linemasks:
-            if xml_etree.findall(".//ns:TextLine", namespaces=namespace) is None:
+            if not xml_etree.findall(".//ns:TextLine", namespaces=namespace):
                 logger.warning("No TextLines found in XML; cannot add linemasks")
             else:
                 xml_etree = BaselineUtils.calc_and_add_linemasks_to_textlines(
@@ -332,7 +332,7 @@ class SegmenterYolo(Segmenter):
                 "model": "yolo",
                 "model_settings": {
                     "model": model,
-                    "device": str(self.device),
+                    "device": str(self.devicename),
                 },
                 "generation_settings": {
                     "batch_size": batchsize,
@@ -451,7 +451,7 @@ class SegmenterYolo(Segmenter):
         serialized = serializer.serialize_collection(collection)
 
         logger.debug(f"Collection: {collection}")
-        logger.debug(f"Serialized Collection: {serialized}")
+        logger.debug(f"Serialized Collection")
         if serialized is None or len(serialized) == 0 or len(serialized[0]) == 0:
             logger.error("Pipeline did not produce any serialized output")
             return None
@@ -474,19 +474,18 @@ class SegmenterYolo(Segmenter):
         :return: Processed XML element tree
         """
         # Check and convert TextRegions to TextLines if needed
+        namespace = XMLUtils.get_xml_namespace(xml_etree)
         if self.textline_check:
-            xml_etree = XMLUtils.convert_textregions_to_textlines(xml_etree)
+            xml_etree = XMLUtils.convert_textregions_to_textlines(xml_etree, namespace)
 
         # Add baselines if configured
         if self.baselines:
-            namespace = XMLUtils.get_xml_namespace(xml_etree)
             xml_etree = BaselineUtils.predict_kraken_baselines(
                 image, xml_etree, namespace
             )
 
         # Add line masks if configured
         if self.kraken_linemasks:
-            namespace = XMLUtils.get_xml_namespace(xml_etree)
             xml_etree = BaselineUtils.calc_and_add_linemasks_to_textlines(
                 image, xml_etree, namespace
             )
@@ -510,13 +509,9 @@ class SegmenterYolo(Segmenter):
             else:
                 # Merge with existing XML
                 logger.debug("Merging with existing XML")
-                xml_namespace_old = XMLUtils.get_xml_namespace(original_etree)
-                xml_namespace_new = XMLUtils.get_xml_namespace(new_etree)
                 return XMLUtils.merge_xml_pages(
                     existing_etree=original_etree,
                     new_etree=new_etree,
-                    namespace_existing=xml_namespace_old,
-                    namespace_new=xml_namespace_new,
                 )
         else:
             if new_etree is None:

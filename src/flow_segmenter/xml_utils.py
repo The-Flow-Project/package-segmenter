@@ -3,7 +3,6 @@ XML Utility functions for PageXML manipulation.
 """
 
 import copy
-import logging
 
 import lxml.etree as et
 
@@ -24,15 +23,13 @@ class XMLUtils:
         :return: Dictionary {'ns': 'namespace_uri'} with the namespace URI
         """
         root = copy.deepcopy(xml_etree)
-        return root.nsmap if None not in root.nsmap else {"ns": root.nsmap[None]}
+        nsmap = {k or "ns": v for k, v in root.nsmap.items()}
+        return nsmap
 
     @staticmethod
     def merge_xml_pages(
             existing_etree: et.Element,
             new_etree: et.Element,
-            namespace_existing: dict[str, str],
-            namespace_new: dict[str, str],
-            remove_namespaces: bool = True,
     ) -> et.Element:
         """
         Merge two PageXML documents by replacing the <Page> element.
@@ -42,21 +39,17 @@ class XMLUtils:
 
         :param existing_etree: Existing XML tree (will be modified)
         :param new_etree: New XML tree containing the updated <Page>
-        :param namespace_existing: Namespace dict of existing XML
-        :param namespace_new: Namespace dict of new XML
-        :param remove_namespaces: Whether to remove namespaces from the result
         :return: Modified existing_etree with new <Page> element
         :raises PageNotFoundError: If <Page> element is not found in either XML
         """
         existing_etree = copy.deepcopy(existing_etree)
-        existing_root = existing_etree
-        new_root = new_etree
+        new_etree = copy.deepcopy(new_etree)
 
-        new_page = new_root.find(".//ns:Page", namespaces=namespace_new)
-        existing_page = existing_root.find(".//ns:Page", namespaces=namespace_existing)
+        namespace_existing = XMLUtils.get_xml_namespace(existing_etree)
+        namespace_new = XMLUtils.get_xml_namespace(new_etree)
 
-        # logger.debug(f"Existing page: {existing_page}")
-        # logger.debug(f"New page: {new_page}")
+        new_page = new_etree.find(".//ns:Page", namespaces=namespace_new)
+        existing_page = existing_etree.find(".//ns:Page", namespaces=namespace_existing)
 
         if existing_page is None:
             raise PageNotFoundError("No <Page> element found in existing XML")
@@ -66,9 +59,6 @@ class XMLUtils:
         # Remove all children from existing page
         for child in list(existing_page):
             existing_page.remove(child)
-
-        if remove_namespaces:
-            new_page = XMLUtils._remove_namespaces(new_page)
 
         # Copy all elements from new page to existing page
         for element in new_page:
@@ -91,15 +81,21 @@ class XMLUtils:
         if namespace is None:
             namespace = XMLUtils.get_xml_namespace(xml_etree)
 
+        ns_uri = namespace.get("ns")
+        if not ns_uri:
+            raise InvalidXMLError("Cannot add metadata: no namespace found in document")
+
         metadata = xml_etree.find(".//ns:Metadata", namespaces=namespace)
 
         if metadata is None:
-            metadata = et.Element("Metadata", nsmap=namespace)
+            metadata = et.Element("Metadata")
+            metadata.tag = f"{{{ns_uri}}}Metadata"
             xml_etree.insert(0, metadata)
 
         creator_el = xml_etree.find(".//ns:Creator", namespaces=namespace)
         if creator_el is None:
             creator_el = et.Element("Creator")
+            creator_el.tag = f"{{{ns_uri}}}Creator"
             metadata.insert(0, creator_el)
 
         creator_el.text = creator
@@ -123,6 +119,7 @@ class XMLUtils:
         """
         if namespace is None:
             namespace = XMLUtils.get_xml_namespace(xml_etree)
+        ns_uri = namespace.get("ns")
 
         textregions = xml_etree.findall(".//ns:TextRegion", namespaces=namespace)
 
@@ -130,7 +127,10 @@ class XMLUtils:
         for tregion in textregions:
             id_tregion = tregion.attrib.get("id", "")
             if id_tregion and "textline" in id_tregion.lower():
-                tregion.tag = f'TextLine'
+                if ns_uri:
+                    tregion.tag = f"{{{ns_uri}}}TextLine"
+                else:
+                    tregion.tag = 'TextLine'
                 converted_count += 1
 
         if converted_count > 0:
@@ -156,11 +156,10 @@ class XMLUtils:
                     ns_clean=True,
                     compact=False,
                     resolve_entities=False,  # Prevent XXE attacks
-                    # no_network=True,  # Disable network access
                 ),
             )
         except et.XMLSyntaxError as e:
-            raise InvalidXMLError(f"Failed to parse XML: {e}")
+            raise InvalidXMLError(f"Failed to parse XML (invalid or malicious): {e}")
 
     @staticmethod
     def serialize_xml(xml_etree: et.Element, encoding: str = "utf-8") -> str:
@@ -177,19 +176,3 @@ class XMLUtils:
         except (et.XMLSyntaxError, TypeError) as e:
             raise InvalidXMLError(f"Cannot serialize XML to string: {e}")
 
-    @staticmethod
-    def _remove_namespaces(xml_etree: et.Element) -> et.Element:
-        """
-        Remove namespaces from an XML element tree.
-
-        :param xml_etree: XML element tree to modify
-        :return: Modified XML element tree without namespaces
-        """
-        for elem in xml_etree.iter():
-            elem.tag = et.QName(elem).localname
-            if elem.prefix:
-                elem.attrib.pop('xmlns:' + elem.prefix, None)
-            else:
-                elem.attrib.pop('xmlns:', None)
-        et.cleanup_namespaces(xml_etree)
-        return xml_etree
