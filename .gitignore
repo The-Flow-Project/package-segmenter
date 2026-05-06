@@ -69,8 +69,11 @@ models/*.pth
 
 # Documentation build
 docs/_build/
+docs/_autosummary/
 docs/_static/
-docs/_templates/
 
 # handeled by pyproject.toml
 requirements.txt
+
+# Agents
+.claude/
