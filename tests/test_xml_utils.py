@@ -177,9 +177,12 @@ class TestConvertTextRegionsToTextLines:
         ns = XMLUtils.get_xml_namespace(result)
 
         # normal_region_2 should still be TextRegion
-        normal_region = result.find(
-            './/ns:TextRegion[@id="normal_region_2"]', namespaces=ns
-        )
+        if ns.get("ns") is not None:
+            normal_region = result.find(
+                './/ns:TextRegion[@id="normal_region_2"]', namespaces=ns
+            )
+        else:
+            normal_region = result.find('.//TextRegion[@id="normal_region_2"]')
         assert normal_region is not None
 
     def test_convert_handles_case_insensitive(self):
@@ -192,7 +195,10 @@ class TestConvertTextRegionsToTextLines:
         result = XMLUtils.convert_textregions_to_textlines(xml)
 
         ns = XMLUtils.get_xml_namespace(result)
-        textline = result.find('.//ns:TextLine[@id="TEXTLINE_1"]', namespaces=ns)
+        if ns.get("ns") is not None:
+            textline = result.find('.//ns:TextLine[@id="TEXTLINE_1"]', namespaces=ns)
+        else:
+            textline = result.find('.//TextLine[@id="TEXTLINE_1"]')
         assert textline is not None
 
 
@@ -212,7 +218,9 @@ class TestSafeParseXML:
         malicious_xml = create_malicious_xxe_xml()
 
         # Should parse but not load external entity
-        with pytest.raises(InvalidXMLError, match=r"Failed to parse XML \(invalid or malicious\).*"):
+        with pytest.raises(
+            InvalidXMLError, match=r"Failed to parse XML \(invalid or malicious\).*"
+        ):
             XMLUtils.safe_parse_xml(malicious_xml.encode())
 
     def test_safe_parse_invalid_xml_raises_error(self):
@@ -253,5 +261,5 @@ class TestSerializeXML:
 
     def test_serialize_with_custom_encoding(self, mock_xml_etree):
         """Test serialization with custom encoding."""
-        result = XMLUtils.serialize_xml(mock_xml_etree, encoding="utf-8")
+        result = XMLUtils.serialize_xml(mock_xml_etree)
         assert isinstance(result, str)

@@ -2,7 +2,6 @@
 Mock data generators for testing flow_segmenter.
 """
 
-
 import numpy as np
 from PIL import Image
 
@@ -38,8 +37,8 @@ def create_mock_xml_with_namespace() -> str:
     :return: XML string with namespace
     """
     return """<?xml version="1.0" encoding="UTF-8"?>
-<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15" 
-       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd">
     <Metadata>
         <Creator>TestCreator</Creator>

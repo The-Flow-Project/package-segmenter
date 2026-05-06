@@ -1,19 +1,17 @@
-.PHONY: help install install-dev test coverage lint format fix clean build docs
+.PHONY: help install install-dev install-docs install-all test test-fast coverage lint format fix check clean build docs docs-serve
 
-# Variables
-PYTHON := python3
-PIP := $(PYTHON) -m pip
-PYTEST := $(PYTHON) -m pytest
-BLACK := $(PYTHON) -m black
-RUFF := $(PYTHON) -m ruff
-ISORT := $(PYTHON) -m isort
-MYPY := $(PYTHON) -m mypy
-SPHINX := $(PYTHON) -m sphinx
+# Tools (run inside the uv-managed venv)
+PYTEST := uv run pytest
+BLACK  := uv run black
+RUFF   := uv run ruff
+ISORT  := uv run isort
+MYPY   := uv run mypy
+SPHINX := uv run sphinx-build
 
 # Directories
-SRC_DIR := src/flow_segmenter
-TEST_DIR := tests
-DOCS_DIR := docs
+SRC_DIR        := src/flow_segmenter
+TEST_DIR       := tests
+DOCS_DIR       := docs
 DOCS_BUILD_DIR := $(DOCS_DIR)/_build
 
 help:
@@ -23,6 +21,7 @@ help:
 	@echo "  make install       - Install production dependencies"
 	@echo "  make install-dev   - Install development dependencies"
 	@echo "  make install-docs  - Install documentation dependencies"
+	@echo "  make install-all   - Install all dependencies"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test          - Run tests"
@@ -44,15 +43,16 @@ help:
 	@echo "  make docs-serve    - Serve documentation locally"
 
 install:
-	$(PIP) install -e .
+	uv sync
 
 install-dev:
-	$(PIP) install -e ".[dev]"
+	uv sync --extra dev
 
 install-docs:
-	$(PIP) install -e ".[docs]"
+	uv sync --extra docs
 
-install-all: install-dev install-docs
+install-all:
+	uv sync --all-extras
 
 test:
 	$(PYTEST) $(TEST_DIR)
@@ -115,7 +115,7 @@ clean:
 	@echo "Clean complete!"
 
 build: clean
-	$(PYTHON) -m build
+	uv build
 
 docs:
 	@echo "Generating documentation..."
@@ -124,5 +124,4 @@ docs:
 
 docs-serve: docs
 	@echo "Serving documentation on http://localhost:8000"
-	cd $(DOCS_BUILD_DIR)/html && $(PYTHON) -m http.server 8000
-
+	cd $(DOCS_BUILD_DIR)/html && uv run python -m http.server 8000

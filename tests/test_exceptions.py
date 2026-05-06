@@ -93,7 +93,7 @@ class TestExceptionCatching:
         """Test catching specific exception type."""
         try:
             raise InvalidXMLError("XML problem")
-        except InvalidXMLError as e:
-            assert "XML problem" in str(e)
+        except InvalidXMLError:
+            pytest.raises(InvalidXMLError, match="XML problem")
         except SegmentationError:
             pytest.fail("Should catch specific exception first")

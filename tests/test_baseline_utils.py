@@ -4,7 +4,7 @@ Tests for flow_segmenter.baseline_utils module.
 
 from unittest.mock import Mock, patch
 
-import lxml.etree as ET
+import lxml.etree as et
 import numpy as np
 import pytest
 from shapely.geometry import LineString, Polygon
@@ -41,7 +41,7 @@ class TestExtractMasksFromXML:
     """Test BaselineUtils.extract_masks_from_xml()."""
 
     def test_extract_masks_from_xml_with_textlines(
-            self, mock_xml_with_textlines, mock_namespace
+        self, mock_xml_with_textlines, mock_namespace
     ):
         """Test extracting masks from XML with TextLine elements."""
         masks = BaselineUtils.extract_masks_from_xml(
@@ -60,7 +60,7 @@ class TestExtractMasksFromXML:
 
     def test_extract_masks_from_xml_without_textlines(self, mock_namespace):
         """Test extracting masks from XML without TextLines."""
-        xml = ET.fromstring(
+        xml = et.fromstring(
             b'<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15">'
             b'<Page><TextRegion id="r1"/></Page></PcGts>'
         )
@@ -70,7 +70,7 @@ class TestExtractMasksFromXML:
 
     def test_extract_masks_handles_invalid_coordinates(self, mock_namespace):
         """Test handling of TextLines with invalid coordinates."""
-        xml = ET.fromstring(
+        xml = et.fromstring(
             b'<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15">'
             b'<Page><TextRegion><TextLine id="l1">'
             b'<Coords points="invalid,data 100,200"/>'
@@ -217,11 +217,11 @@ class TestPredictKrakenBaselines:
 
     @patch("flow_segmenter.baseline_utils.blla.segment")
     def test_predict_kraken_baselines_integration(
-            self,
-            mock_blla_segment,
-            mock_image_file,
-            mock_xml_with_textlines,
-            mock_namespace,
+        self,
+        mock_blla_segment,
+        mock_image_file,
+        mock_xml_with_textlines,
+        mock_namespace,
     ):
         """Test baseline prediction integration."""
         # Mock Kraken segmentation
@@ -242,11 +242,11 @@ class TestPredictKrakenBaselines:
 
     @patch("flow_segmenter.baseline_utils.blla.segment")
     def test_predict_kraken_baselines_with_no_baselines(
-            self,
-            mock_blla_segment,
-            mock_image_file,
-            mock_xml_with_textlines,
-            mock_namespace,
+        self,
+        mock_blla_segment,
+        mock_image_file,
+        mock_xml_with_textlines,
+        mock_namespace,
     ):
         """Test handling when no baselines found."""
         mock_seg = Mock()
@@ -266,11 +266,11 @@ class TestAddLineMasksToTextlines:
 
     @patch("flow_segmenter.baseline_utils.calculate_polygonal_environment")
     def test_add_linemasks_to_textlines(
-            self, mock_calc_env, mock_image_file, mock_namespace
+        self, mock_calc_env, mock_image_file, mock_namespace
     ):
         """Test adding linemasks to textlines."""
         xml_string = create_mock_xml_with_baselines()
-        xml = ET.fromstring(xml_string.encode())
+        xml = et.fromstring(xml_string.encode())
 
         # Mock mask calculation
         mock_calc_env.return_value = [[(100, 100), (200, 100), (200, 150), (100, 150)]]
@@ -292,11 +292,11 @@ class TestAddLineMasksToTextlines:
 
     @patch("flow_segmenter.baseline_utils.calculate_polygonal_environment")
     def test_add_linemasks_handles_calculation_error(
-            self, mock_calc_env, mock_image_file, mock_namespace
+        self, mock_calc_env, mock_image_file, mock_namespace
     ):
         """Test handling when mask calculation fails."""
         xml_string = create_mock_xml_with_baselines()
-        xml = ET.fromstring(xml_string.encode())
+        xml = et.fromstring(xml_string.encode())
 
         # Mock error in calculation
         mock_calc_env.side_effect = Exception("Calculation error")

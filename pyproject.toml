@@ -64,11 +64,13 @@ dev = [
     "isort>=5.13.2",
     "types-Pillow>=10.2.0",
     "types-PyYAML>=6.0.12",
+    "lxml-stubs>=0.5.1",
 ]
 docs = [
     "sphinx>=8.1.0",
     "sphinx-rtd-theme>=3.0.2",
     "sphinx-autodoc-typehints>=2.5.0",
+    "myst-parser>=4.0.0",
 ]
 
 [project.urls]
@@ -97,8 +99,9 @@ extend-exclude = '''
 
 [tool.ruff]
 line-length = 88
+indent-width = 4
 target-version = "py312"
-select = [
+lint.select = [
     "E", # pycodestyle errors
     "W", # pycodestyle warnings
     "F", # pyflakes
@@ -111,19 +114,22 @@ select = [
     "PT", # flake8-pytest-style
     "SIM", # flake8-simplify
 ]
-ignore = [
+lint.ignore = [
     "E501", # line too long (handled by black)
     "B008", # do not perform function calls in argument defaults
+    "UP045", # Replace Optional with pipe syntax
+    "B905", # `zip()` without an explicit `strict=` parameter
 ]
 
-[tool.ruff.per-file-ignores]
-"__init__.py" = ["F401"]
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"] # allow unused imports in __init__.py for better package exports
 "tests/*" = ["S101", "PLR2004"]
 
 [tool.isort]
 profile = "black"
 line_length = 88
 skip_gitignore = true
+indent = 4
 
 [tool.mypy]
 python_version = "3.12"
@@ -138,11 +144,20 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src/flow_segmenter --cov-report=term-missing --cov-report=html --cov-report=xml"
+pythonpath = ["src"]
+addopts = "-v --strict-markers --tb=short --color=yes"
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "security: Security-related tests",
+    "performance: Performance tests",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+minversion = "3.12"
 
 [tool.coverage.run]
 source = ["src/flow_segmenter"]
@@ -170,4 +185,5 @@ dev = [
     "jupyterlab>=4.5.5",
     "lxml-stubs>=0.5.1",
     "notebook>=7.5.4",
+    "types-pyyaml>=6.0.12.20260408",
 ]

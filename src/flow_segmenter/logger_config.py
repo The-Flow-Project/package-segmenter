@@ -1,9 +1,15 @@
 """
 Logger configuration for the FLOW Preprocessing Service with loguru.
 """
+
+import contextlib
 import sys
 from pathlib import Path
+
 from loguru import logger
+
+
+_VALID_LEVELS = {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}
 
 
 def setup_logger(level: str = "DEBUG", log_files: bool = False) -> None:
@@ -11,19 +17,23 @@ def setup_logger(level: str = "DEBUG", log_files: bool = False) -> None:
     Configure the Loguru logger for the application.
 
     Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        level: Log level (TRACE, DEBUG, INFO, SUCCESS, WARNING, ERROR, CRITICAL)
         log_files: Write logging to files (defaults: False).
     """
-    try:
+    if level.upper() not in _VALID_LEVELS:
+        raise ValueError(
+            f"Invalid log level: {level!r}. Must be one of {sorted(_VALID_LEVELS)}"
+        )
+    level = level.upper()
+
+    with contextlib.suppress(ValueError):
         logger.remove(0)
-    except ValueError:
-        pass  # Default handler doesn't exist
 
     # Console handler with colored output
     logger.add(
         sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | " \
-               "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
         level=level,
         colorize=True,
         backtrace=False,
@@ -36,10 +46,7 @@ def setup_logger(level: str = "DEBUG", log_files: bool = False) -> None:
         logs_dir = Path("logs")
         logs_dir.mkdir(parents=True, exist_ok=True)
 
-        if level == "DEBUG":
-            diagnose = True
-        else:
-            diagnose = False
+        diagnose = level == "DEBUG"
 
         logger.add(
             logs_dir / "flow_segmenter.log",

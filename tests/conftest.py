@@ -5,7 +5,7 @@ PyTest configuration and shared fixtures.
 import tempfile
 from unittest.mock import MagicMock
 
-import lxml.etree as ET
+import lxml.etree as et
 import pytest
 
 from tests.fixtures.mock_data import (
@@ -37,7 +37,7 @@ def mock_xml_etree():
     :return: lxml Element tree
     """
     xml_string = create_mock_xml_with_namespace()
-    return ET.fromstring(xml_string.encode("utf-8"))
+    return et.fromstring(xml_string.encode("utf-8"))
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def mock_xml_with_textlines():
     :return: lxml Element tree
     """
     xml_string = create_mock_xml_with_textlines()
-    return ET.fromstring(xml_string.encode("utf-8"))
+    return et.fromstring(xml_string.encode("utf-8"))
 
 
 @pytest.fixture

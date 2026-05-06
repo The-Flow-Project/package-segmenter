@@ -11,11 +11,13 @@ class SegmenterBaseConfig(BaseModel):
     """
     Base configuration model for the segmentation process.
     """
+
     order_lines: bool = Field(False, description="Whether to order text lines")
     export: bool = Field(False, description="Export results to PageXML files or not")
     baselines: bool = Field(
-        False, description="Generate baselines by the kraken default-blla-model "
-                           "(expected if not existing in the XML file)"
+        False,
+        description="Generate baselines by the kraken default-blla-model "
+        "(expected if not existing in the XML file)",
     )
     kraken_linemasks: bool = Field(
         False,
@@ -26,11 +28,21 @@ class SegmenterBaseConfig(BaseModel):
         description="Creator name for metadata, default is 'The-Flow-Project'.",
     )
 
+    @model_validator(mode="after")
+    def validate_baselines_true(self):
+        """Ensure baselines is True if kraken_linemasks is True."""
+        if self.kraken_linemasks and not self.baselines:
+            raise ValueError(
+                "If kraken_linemasks is True, baselines must also be True."
+            )
+        return self
+
 
 class SegmenterConfig(SegmenterBaseConfig):
     """
     Configuration model for the segmentation process.
     """
+
     model_names: str | list[str] = Field(
         ...,
         description="Huggingface model name(s) and/or local path(s) as string or list of strings.",
@@ -46,12 +58,12 @@ class SegmenterConfig(SegmenterBaseConfig):
     load_existing_segmentation: bool = Field(
         False,
         description="Whether to load the existing segmentation from the XML file before using the segmenter."
-                    "Makes sense, if you use a line recognition model and you want to keep the regions (default False)."
+        "Makes sense, if you use a line recognition model and you want to keep the regions (default False).",
     )
     yolo_args: dict[str, Any] | None = Field(
         None,
         description="Additional YOLO pipeline arguments. "
-                    "See https://docs.ultralytics.com/modes/predict/#inference-arguments for details.",
+        "See https://docs.ultralytics.com/modes/predict/#inference-arguments for details.",
     )
 
     @model_validator(mode="after")
@@ -64,12 +76,13 @@ class SegmenterConfig(SegmenterBaseConfig):
             else self.model_names
         )
 
-        if isinstance(self.batch_sizes, list):
-            if len(self.batch_sizes) != len(model_names_list):
-                raise ValueError(
-                    f"Length of batch_sizes ({len(self.batch_sizes)}) must match "
-                    f"length of model_names ({len(model_names_list)})"
-                )
+        if isinstance(self.batch_sizes, list) and len(self.batch_sizes) != len(
+            model_names_list
+        ):
+            raise ValueError(
+                f"Length of batch_sizes ({len(self.batch_sizes)}) must match "
+                f"length of model_names ({len(model_names_list)})"
+            )
         return self
 
     @field_validator("batch_sizes")

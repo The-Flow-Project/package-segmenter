@@ -7,10 +7,10 @@ Package to recognize text segmentation
 # ===============================================================================
 
 import copy
+import os
 import tempfile
-from io import BytesIO
-
 from abc import ABC, abstractmethod
+from io import BytesIO
 from typing import Any, Optional
 
 import datasets
@@ -18,9 +18,9 @@ import lxml.etree as et
 import numpy as np
 import torch
 import yaml
-
-from htrflow.volume.volume import Collection
 from htrflow.results import Result
+from htrflow.volume.volume import Collection
+from loguru import logger
 from pagexml.parser import parse_pagexml_file
 from PIL import Image
 
@@ -34,15 +34,14 @@ from .exceptions import (
 )
 from .xml_utils import XMLUtils
 
-from loguru import logger
-
 # Constants
 DEFAULT_YOLO_ARGS = {
     "conf": 0.25,  # Confidence threshold
     "iou": 0.45,  # IoU threshold
     "max_det": 100,  # Maximum detections per image
     "device": (
-        "cuda" if torch.cuda.is_available()
+        "cuda"
+        if torch.cuda.is_available()
         else "mps" if torch.backends.mps.is_available() else "cpu"
     ),  # Device to run the model on
 }
@@ -75,7 +74,7 @@ class Segmenter(ABC):
             torch.backends.cudnn.allow_tf32 = True
         else:
             self.devicename = "cpu"
-        self.device = torch.device(self.devicename)
+        self.device = (torch.device(self.devicename))
 
         self.model_names = None
         self.batch_size = None
@@ -83,7 +82,7 @@ class Segmenter(ABC):
 
     @abstractmethod
     def segment(
-            self, image: str | bytes, xml_etree: Optional[et.Element] = None
+        self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
     ) -> Optional[et.Element]:
         """
         Method to segment the image with the loaded model
@@ -93,29 +92,27 @@ class Segmenter(ABC):
         """
         pass
 
-    def get_batchsize(
-            self, batch_sizes: list[int] | int
-    ) -> list[int]:
+    def get_batchsize(self, batch_sizes: list[int] | int) -> list[int]:
         """
         Method to get the batch size of the model
         :param batch_sizes: List of batch sizes or a single batch size int
         :return: Batch size of the model
         """
         if self.model_names:
-            batch_sizes: list[int] = (
+            batch_sizes_eval: list[int] = (
                 [max(batch_sizes, MIN_BATCH_SIZE)] * len(self.model_names)
                 if isinstance(batch_sizes, int)
                 else [max(b, MIN_BATCH_SIZE) for b in batch_sizes]
             )
-            if len(batch_sizes) != len(self.model_names):
+            if len(batch_sizes_eval) != len(self.model_names):
                 # If the batch sizes are not equal to the number of models, set them to default
-                batch_sizes = [DEFAULT_BATCH_SIZE] * len(self.model_names)
+                batch_sizes_eval = [DEFAULT_BATCH_SIZE] * len(self.model_names)
         else:
             raise ValueError(
                 "No model names provided. Please provide a list of model names."
             )
 
-        return batch_sizes
+        return batch_sizes_eval
 
     @staticmethod
     def _load_pil_image_from_example(image_example: dict) -> Image.Image:
@@ -128,12 +125,14 @@ class Segmenter(ABC):
             try:
                 return Image.open(BytesIO(image_example["bytes"])).convert("RGB")
             except (OSError, ValueError) as e:
-                raise InvalidImageError(f"Cannot decode image bytes: {e}")
+                raise InvalidImageError(f"Cannot decode image bytes: {e}") from e
         if "path" in image_example and image_example["path"]:
             try:
                 return Image.open(image_example["path"]).convert("RGB")
             except (OSError, ValueError) as e:
-                raise InvalidImageError(f"Cannot open image path '{image_example['path']}': {e}")
+                raise InvalidImageError(
+                    f"Cannot open image path '{image_example['path']}': {e}"
+                ) from e
         try:
             image_array = np.array(image_example)
             if image_array.ndim == 2:
@@ -141,12 +140,12 @@ class Segmenter(ABC):
             if image_array.ndim == 3:
                 return Image.fromarray(image_array).convert("RGB")
         except (TypeError, ValueError) as e:
-            raise InvalidImageError(f"Cannot convert image to array: {e}")
+            raise InvalidImageError(f"Cannot convert image to array: {e}") from e
 
         raise InvalidImageError("Unsupported image example format")
 
     def _process_single_dataset_example(
-            self, example: dict, new_column_name: str
+        self, example: dict, new_column_name: str
     ) -> dict:
         """
         Process a single example from the dataset.
@@ -155,10 +154,9 @@ class Segmenter(ABC):
         :param new_column_name: Name of column to store result
         :return: Modified example with segmented XML
         """
-        logger.debug(f"Processing single dataset example")
-        image_example: Optional[bytes] = example["image"]["bytes"] if "bytes" in example["image"] else None
-        if image_example is None:
-            raise InvalidImageError("No image bytes found in dataset example")
+        logger.debug("Processing single dataset example")
+        pil_image = self._load_pil_image_from_example(example["image"])
+        image_example: np.ndarray = np.array(pil_image)
         logger.debug(f"Type of image example: {type(image_example)}")
         if "xml" not in example and "xml_content" in example:
             xml_content = example["xml_content"]
@@ -166,12 +164,14 @@ class Segmenter(ABC):
             xml_content = example["xml"]
         else:
             logger.error("No XML content found in dataset example")
-            raise ValueError("Dataset example must contain 'xml' or 'xml_content' field")
+            raise ValueError(
+                "Dataset example must contain 'xml' or 'xml_content' field"
+            )
         xml_bytes = xml_content.encode("utf-8")
         logger.debug(f"Processing XML bytes: {len(xml_bytes)}")
 
         # Parse XML
-        logger.debug(f"Parse example")
+        logger.debug("Parse example")
         try:
             xml_etree = XMLUtils.safe_parse_xml(xml_bytes)
         except InvalidXMLError as e:
@@ -188,7 +188,9 @@ class Segmenter(ABC):
             if segmented_etree is not None:
                 example[new_column_name] = XMLUtils.serialize_xml(segmented_etree)
             else:
-                logger.warning("Segmentation returned None; falling back to original XML")
+                logger.warning(
+                    "Segmentation returned None; falling back to original XML"
+                )
                 example[new_column_name] = xml_content
 
         except InvalidImageError as e:
@@ -207,7 +209,7 @@ class Segmenter(ABC):
         return example
 
     def segment_dataset(
-            self, dataset: datasets.Dataset, new_column_name: str = "xml"
+        self, dataset: datasets.Dataset, new_column_name: str = "xml"
     ) -> datasets.Dataset:
         """
         Segment a HuggingFace dataset with the loaded model.
@@ -227,7 +229,10 @@ class Segmenter(ABC):
 
         if "image" not in dataset.column_names:
             raise ValueError("Dataset must contain 'image' column")
-        elif "xml" not in dataset.column_names and "xml_content" not in dataset.column_names:
+        elif (
+            "xml" not in dataset.column_names
+            and "xml_content" not in dataset.column_names
+        ):
             raise ValueError("Dataset must contain 'xml' or 'xml_content' column")
 
         # Map the processing function to all examples
@@ -236,7 +241,9 @@ class Segmenter(ABC):
             lambda example: self._process_single_dataset_example(
                 example, new_column_name
             ),
-            writer_batch_size=self.batch_size if self.batch_size is not None else DEFAULT_BATCH_SIZE,
+            writer_batch_size=(
+                self.batch_size if self.batch_size is not None else DEFAULT_BATCH_SIZE
+            ),
             num_proc=1,
         )
         return segmented_dataset
@@ -256,7 +263,7 @@ class SegmenterKrakenLinemasks(Segmenter):
         self.kraken_linemasks = config.kraken_linemasks
 
     def segment(
-            self, image: bytes, xml_etree: Optional[et.Element] = None
+        self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
     ) -> Optional[et.Element]:
         """
         Segment an image by adding baselines and linemasks using kraken's default blla model.
@@ -267,7 +274,7 @@ class SegmenterKrakenLinemasks(Segmenter):
         :raises InvalidImageError: If image cannot be processed
         :raises InvalidXMLError: If XML parsing fails
         """
-        logger.info(f"Processing image for baselines and linemasks")
+        logger.info("Processing image for baselines and linemasks")
 
         if xml_etree is None:
             logger.error("No XML provided for baseline/linemask processing")
@@ -275,7 +282,9 @@ class SegmenterKrakenLinemasks(Segmenter):
 
         namespace = XMLUtils.get_xml_namespace(xml_etree)
         if not xml_etree.findall(".//ns:Baseline", namespaces=namespace):
-            logger.warning("No TextLines with Baselines found in XML; predicting baselines")
+            logger.warning(
+                "No TextLines with Baselines found in XML; predicting baselines"
+            )
             self.baselines = True
 
         # Add baselines if configured
@@ -318,7 +327,7 @@ class SegmenterYolo(Segmenter):
         self.yolo_args = {**DEFAULT_YOLO_ARGS, **(config.yolo_args or {})}
 
         self.baselines = config.baselines
-        self.kraken_linemasks = [config.kraken_linemasks if self.baselines else False]
+        self.kraken_linemasks = config.kraken_linemasks if self.baselines else False
         self.textline_check = config.textline_check
         self.load_existing_segmentation = config.load_existing_segmentation
         self.order_lines = config.order_lines
@@ -362,7 +371,8 @@ class SegmenterYolo(Segmenter):
 
         logger.debug(
             yaml.safe_dump(
-                self.htrflowConfig, sort_keys=False,  # default_flow_style=False,
+                self.htrflowConfig,
+                sort_keys=False,  # default_flow_style=False,
             )
         )
 
@@ -371,17 +381,21 @@ class SegmenterYolo(Segmenter):
         self.pipeline = Pipeline.from_config(config_for_pipeline)
 
     @staticmethod
-    def _create_and_validate_collection(image_bytes: bytes | np.ndarray, xml_content: str | None) -> Collection:
+    def _create_and_validate_collection(
+        image_bytes: bytes | np.ndarray, xml_content: str | None
+    ) -> tuple[Collection, list[str]]:
         """
         Create and validate a collection from an image.
 
         :param image_bytes: Image bytes or numpy array
         :param xml_content: XML string to parse and add to the collection (optional)
-        :return: Validated Collection object
+        :return: Tuple of (Collection, list of temp file paths to clean up after use)
         :raises InvalidImageError: If collection cannot be created
         :raises EmptyCollectionError: If no pages found in collection
         :raises SegmentationError: If collection cannot be created
         """
+        temp_paths: list[str] = []
+
         try:
             if isinstance(image_bytes, bytes):
                 pil_image = Image.open(BytesIO(image_bytes)).convert("RGB")
@@ -390,12 +404,15 @@ class SegmenterYolo(Segmenter):
 
             # Save the Image temporarily
             with tempfile.NamedTemporaryFile(
-                    prefix=TEMP_IMAGE_PREFIX, suffix=".jpg", delete=False
+                prefix=TEMP_IMAGE_PREFIX, suffix=".jpg", delete=False
             ) as temp_file:
-                pil_image.save(temp_file.name, format="JPEG", quality=DEFAULT_JPEG_QUALITY)
+                pil_image.save(
+                    temp_file.name, format="JPEG", quality=DEFAULT_JPEG_QUALITY
+                )
                 image_path = temp_file.name
+                temp_paths.append(image_path)
         except (OSError, ValueError) as e:
-            raise InvalidImageError(f"Cannot process image: {e}")
+            raise InvalidImageError(f"Cannot process image: {e}") from e
 
         if image_path is None:
             raise InvalidImageError("Failed to create temporary image file")
@@ -405,7 +422,7 @@ class SegmenterYolo(Segmenter):
         except (OSError, FileNotFoundError) as e:
             raise InvalidImageError(
                 f"Cannot create collection from image '{image_path}': {e}"
-            )
+            ) from e
 
         if len(collection.pages) < 1:
             error_msg = f"No pages found in the collection for image {image_path}"
@@ -414,9 +431,12 @@ class SegmenterYolo(Segmenter):
 
         try:
             if xml_content:
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as tmp_file:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".xml", delete=False
+                ) as tmp_file:
                     tmp_file.write(xml_content)
                     tmp_path = tmp_file.name
+                    temp_paths.append(tmp_path)
 
                 page = parse_pagexml_file(tmp_path)
 
@@ -424,7 +444,10 @@ class SegmenterYolo(Segmenter):
                     result = Result()
                 else:
                     shape = (page.coords.height, page.coords.width)
-                    polygons = [region.coords.points for region in page.get_text_regions_in_reading_order()]
+                    polygons = [
+                        region.coords.points
+                        for region in page.get_text_regions_in_reading_order()
+                    ]
                     result = Result.segmentation_result(
                         orig_shape=shape,
                         metadata={},
@@ -432,11 +455,13 @@ class SegmenterYolo(Segmenter):
                     )
                 collection.update([result])
         except (OSError, ValueError) as e:
-            raise SegmentationError(f"Cannot process provided XML content: {e}")
+            raise SegmentationError(f"Cannot process provided XML content: {e}") from e
 
-        return collection
+        return collection, temp_paths
 
-    def _run_pipeline_and_serialize(self, collection: Collection) -> Optional[et.Element]:
+    def _run_pipeline_and_serialize(
+        self, collection: Collection
+    ) -> Optional[et.Element]:
         """
         Run the segmentation pipeline and serialize the result to XML.
 
@@ -445,26 +470,25 @@ class SegmenterYolo(Segmenter):
         :raises InvalidXMLError: If XML parsing fails
         """
         from htrflow.serialization.serialization import PageXML
+
         serializer = PageXML()
         collection = self.pipeline.run(collection)
         logger.debug("Serializing collection to XML")
         serialized = serializer.serialize_collection(collection)
 
         logger.debug(f"Collection: {collection}")
-        logger.debug(f"Serialized Collection")
         if serialized is None or len(serialized) == 0 or len(serialized[0]) == 0:
             logger.error("Pipeline did not produce any serialized output")
             return None
-        else:
-            logger.debug("#" * 20 + " START Serialized PageXML")
-            logger.debug(serializer.serialize_collection(collection)[0][0].encode())
-            logger.debug("#" * 20 + " END Serialized PageXML")
 
-            xml_content = serializer.serialize_collection(collection)[0][0].encode()
-            return XMLUtils.safe_parse_xml(xml_content)
+        xml_content = serialized[0][0].encode()
+        logger.debug("#" * 20 + " START Serialized PageXML")
+        logger.debug(xml_content)
+        logger.debug("#" * 20 + " END Serialized PageXML")
+        return XMLUtils.safe_parse_xml(xml_content)
 
     def _apply_postprocessing(
-            self, xml_etree: et.Element, image: str | bytes | np.ndarray
+        self, xml_etree: et.Element, image: str | bytes | np.ndarray
     ) -> et.Element:
         """
         Apply post-processing steps to the segmented XML.
@@ -493,7 +517,7 @@ class SegmenterYolo(Segmenter):
         return xml_etree
 
     def _merge_or_finalize_xml(
-            self, new_etree: Optional[et.Element], original_etree: Optional[et.Element]
+        self, new_etree: Optional[et.Element], original_etree: Optional[et.Element]
     ) -> et.Element:
         """
         Merge with original XML or finalize the new XML with metadata.
@@ -515,8 +539,12 @@ class SegmenterYolo(Segmenter):
                 )
         else:
             if new_etree is None:
-                logger.error("Segmentation produced no XML and no original XML provided")
-                raise InvalidXMLError("No XML produced from segmentation and no original XML to fall back on")
+                logger.error(
+                    "Segmentation produced no XML and no original XML provided"
+                )
+                raise InvalidXMLError(
+                    "No XML produced from segmentation and no original XML to fall back on"
+                )
             else:
                 # Add creator metadata if configured
                 if self.creator is not None:
@@ -524,7 +552,7 @@ class SegmenterYolo(Segmenter):
                 return new_etree
 
     def segment(
-            self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
+        self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
     ) -> Optional[et.Element]:
         """
         Segment an image using the loaded YOLO model.
@@ -543,22 +571,30 @@ class SegmenterYolo(Segmenter):
         :raises EmptyCollectionError: If no pages found
         :raises InvalidXMLError: If XML parsing fails
         """
-        logger.info(f"Segmenting image")
+        logger.info("Segmenting image")
 
         # Step 1: Create and validate collection
         if self.load_existing_segmentation:
-            xml_content = XMLUtils.serialize_xml(xml_etree) if xml_etree is not None else None
+            xml_content = (
+                XMLUtils.serialize_xml(xml_etree) if xml_etree is not None else None
+            )
         else:
             xml_content = None
-        collection = self._create_and_validate_collection(image, xml_content)
+        collection, temp_paths = self._create_and_validate_collection(image, xml_content)
 
-        # Step 2: Run pipeline and serialize to XML
-        new_etree = self._run_pipeline_and_serialize(collection)
+        try:
+            # Step 2: Run pipeline and serialize to XML
+            new_etree = self._run_pipeline_and_serialize(collection)
 
-        # Step 3: Apply post-processing
-        if new_etree is not None:
-            new_etree = self._apply_postprocessing(new_etree, image)
+            # Step 3: Apply post-processing
+            if new_etree is not None:
+                new_etree = self._apply_postprocessing(new_etree, image)
 
-        # Step 4: Merge or finalize
-        new_element = self._merge_or_finalize_xml(new_etree, xml_etree)
-        return new_element
+            # Step 4: Merge or finalize
+            return self._merge_or_finalize_xml(new_etree, xml_etree)
+        finally:
+            for path in temp_paths:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass

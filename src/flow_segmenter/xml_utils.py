@@ -5,10 +5,9 @@ XML Utility functions for PageXML manipulation.
 import copy
 
 import lxml.etree as et
+from loguru import logger
 
 from .exceptions import InvalidXMLError, PageNotFoundError
-
-from loguru import logger
 
 
 class XMLUtils:
@@ -22,14 +21,13 @@ class XMLUtils:
         :param xml_etree: XML tree element
         :return: Dictionary {'ns': 'namespace_uri'} with the namespace URI
         """
-        root = copy.deepcopy(xml_etree)
-        nsmap = {k or "ns": v for k, v in root.nsmap.items()}
+        nsmap = {k or "ns": v for k, v in xml_etree.nsmap.items()}
         return nsmap
 
     @staticmethod
     def merge_xml_pages(
-            existing_etree: et.Element,
-            new_etree: et.Element,
+        existing_etree: et.Element,
+        new_etree: et.Element,
     ) -> et.Element:
         """
         Merge two PageXML documents by replacing the <Page> element.
@@ -64,11 +62,15 @@ class XMLUtils:
         for element in new_page:
             existing_page.append(copy.deepcopy(element))
 
+        # Update page attributes from new page (e.g. imageFilename, dimensions)
+        for attr, val in new_page.attrib.items():
+            existing_page.attrib[attr] = val
+
         return existing_etree
 
     @staticmethod
     def add_creator_metadata(
-            xml_etree: et.Element, creator: str, namespace: dict[str, str] | None = None
+        xml_etree: et.Element, creator: str, namespace: dict[str, str] | None = None
     ) -> et.Element:
         """
         Add creator information to the metadata of a PageXML document.
@@ -88,14 +90,12 @@ class XMLUtils:
         metadata = xml_etree.find(".//ns:Metadata", namespaces=namespace)
 
         if metadata is None:
-            metadata = et.Element("Metadata")
-            metadata.tag = f"{{{ns_uri}}}Metadata"
+            metadata = et.Element(f"{{{ns_uri}}}Metadata")
             xml_etree.insert(0, metadata)
 
-        creator_el = xml_etree.find(".//ns:Creator", namespaces=namespace)
+        creator_el = metadata.find("ns:Creator", namespaces=namespace)
         if creator_el is None:
-            creator_el = et.Element("Creator")
-            creator_el.tag = f"{{{ns_uri}}}Creator"
+            creator_el = et.Element(f"{{{ns_uri}}}Creator")
             metadata.insert(0, creator_el)
 
         creator_el.text = creator
@@ -105,7 +105,7 @@ class XMLUtils:
 
     @staticmethod
     def convert_textregions_to_textlines(
-            xml_etree: et.Element, namespace: dict[str, str] | None = None
+        xml_etree: et.Element, namespace: dict[str, str] | None = None
     ) -> et.Element:
         """
         Convert TextRegion elements to TextLine if their ID contains 'textline'.
@@ -130,7 +130,7 @@ class XMLUtils:
                 if ns_uri:
                     tregion.tag = f"{{{ns_uri}}}TextLine"
                 else:
-                    tregion.tag = 'TextLine'
+                    tregion.tag = "TextLine"
                 converted_count += 1
 
         if converted_count > 0:
@@ -159,20 +159,21 @@ class XMLUtils:
                 ),
             )
         except et.XMLSyntaxError as e:
-            raise InvalidXMLError(f"Failed to parse XML (invalid or malicious): {e}")
+            raise InvalidXMLError(
+                f"Failed to parse XML (invalid or malicious): {e}"
+            ) from e
 
     @staticmethod
-    def serialize_xml(xml_etree: et.Element, encoding: str = "utf-8") -> str:
+    def serialize_xml(xml_etree: et.Element) -> str:
         """
-        Serialize XML element tree to string.
+        Serialize XML element tree to string with default encoding (utf-8).
 
         :param xml_etree: XML element tree to serialize
-        :param encoding: Character encoding (default: 'utf-8')
         :return: XML as string
         :raises InvalidXMLError: If serialization fails
         """
         try:
-            return et.tostring(xml_etree, encoding=encoding).decode(encoding)
+            result = et.tostring(xml_etree, encoding="unicode")
+            return result if isinstance(result, str) else str(result)
         except (et.XMLSyntaxError, TypeError) as e:
-            raise InvalidXMLError(f"Cannot serialize XML to string: {e}")
-
+            raise InvalidXMLError(f"Cannot serialize XML to string: {e}") from e

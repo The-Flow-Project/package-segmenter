@@ -3,7 +3,7 @@ Flow Segmenter Package Initialization
 """
 
 from .baseline_utils import BaselineUtils
-from .config import SegmenterConfig, SegmenterBaseConfig
+from .config import SegmenterBaseConfig, SegmenterConfig
 from .exceptions import (
     EmptyCollectionError,
     InvalidImageError,
@@ -12,11 +12,11 @@ from .exceptions import (
     PageNotFoundError,
     SegmentationError,
 )
+from .logger_config import setup_logger
 from .segmenter import SegmenterKrakenLinemasks, SegmenterYolo
 from .xml_utils import XMLUtils
-from .logger_config import setup_logger
 
-__version__ = "0.2.4"
+__version__ = "0.3.0"
 __license__ = "MIT"
 __authors__ = ["jnswidmer"]
 

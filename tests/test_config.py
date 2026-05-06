@@ -61,7 +61,7 @@ class TestSegmenterConfigValidation:
 
     def test_kraken_linemasks_requires_baselines(self):
         """Test that kraken_linemasks=True requires baselines=True."""
-        with pytest.raises(ValidationError, match="requires baselines=True"):
+        with pytest.raises(ValidationError, match="If kraken_linemasks is True, baselines must also be True."):
             SegmenterConfig(
                 model_names="model.pt", kraken_linemasks=True, baselines=False
             )
