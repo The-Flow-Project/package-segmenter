@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Python 3.12+ application to recognize text structures in images of documents.
 It uses the htrflow package(https://ai-riksarkivet.github.io/htrflow/v0.2.6/index.html)
