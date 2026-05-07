@@ -6,15 +6,15 @@
 
 A Python package for segmenting XML files through automatic text structure recognition using YOLO.
 
-## 🌟 Features
+## Features
 
-- 🎯 **Automatic Segmentation** - Automatically recognizes text structures
-- 🔍 **Multiple Backends** - Supports YOLO and Kraken (for baseline and linemask detection)
-- 📐 **Baseline Processing** - Intelligent baseline extraction
-- 🛠️ **XML Utilities** - Comprehensive XML processing functions
-- ✅ **Validation** - Robust input validation with Pydantic
+- **Automatic Segmentation** - Automatically recognizes text structures
+- **Multiple Backends** - Supports YOLO and Kraken (for baseline and linemask detection)
+- **Baseline Processing** - Intelligent baseline extraction
+- **XML Utilities** - Comprehensive XML processing functions
+- **Validation** - Robust input validation with Pydantic
 
-## 🚀 Installation
+## Installation
 
 ### Standard Installation
 
@@ -43,12 +43,12 @@ pip install -e ".[dev]"
 uv pip install -e .
 ```
 
-## 💻 Usage
+## Usage
 
 ### Simple Example
 
 ```python
-from flow_segmenter import SegmenterYOLO
+from flow_segmenter import SegmenterYolo
 from flow_segmenter.config import SegmenterConfig
 
 from lxml import etree
@@ -61,7 +61,7 @@ config = SegmenterConfig(
 )
 
 # Initialize segmenter
-segmenter = SegmenterYOLO(config)
+segmenter = SegmenterYolo(config)
 
 # Process XML file
 result = segmenter.segment(
@@ -72,7 +72,7 @@ print(f"Segmentation completed: {result}")
 print(etree.tostring(result, pretty_print=True, encoding="unicode"))
 ```
 
-## 🧪 Testing and Linting
+## Testing and Linting
 
 Have a look at the `Makefile` for various development commands, like:
 
@@ -80,9 +80,7 @@ Have a look at the `Makefile` for various development commands, like:
 make test
 ```
 
-Tests created with Claude Sonnet 4.5.
-
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please follow these steps:
 
@@ -94,30 +92,12 @@ Contributions are welcome! Please follow these steps:
 6. Push branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🔗 Links
+## Links
 
 - [Flow Project Website](https://flow-project.net)
 - [GitHub Repository](https://github.com/The-Flow-Project/package-segmenter)
 - [Issue Tracker](https://github.com/The-Flow-Project/package-segmenter/issues)
-
-## 📊 Changelog
-
-### v0.1.5 (2025-12)
-
-- ✨ Complete refactoring OOP structure
-- 🔧 Improved configuration with Pydantic
-- 🚀 Performance optimization with spatial indexing
-- 🧪 Comprehensive test suite
-- 📖 Extended documentation
-- 🛠️ Makefile for development workflow
-
-### v0.1.0
-
-- 🎉 Initial release
-- 🎯 Basic segmentation functionality
-- 📐 Baseline extraction
-- 🗺️ XML processing

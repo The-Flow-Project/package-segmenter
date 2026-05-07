@@ -7,6 +7,7 @@ Package to recognize text segmentation
 # ===============================================================================
 
 import copy
+import contextlib
 import os
 import tempfile
 from abc import ABC, abstractmethod
@@ -594,7 +595,5 @@ class SegmenterYolo(Segmenter):
             return self._merge_or_finalize_xml(new_etree, xml_etree)
         finally:
             for path in temp_paths:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(path)
-                except OSError:
-                    pass
