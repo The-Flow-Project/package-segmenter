@@ -284,6 +284,9 @@ class BaselineUtils:
                         p.split(",") for p in baseline_el.attrib["points"].split()
                     ]
                 ]
+                if len(points) < 2:
+                    logger.warning(f"Skipping line {line_nr}: baseline has only {len(points)} point(s)")
+                    continue
                 baseline_points.append(points)
                 lines.append(line_el)
             except (ValueError, KeyError) as e:
