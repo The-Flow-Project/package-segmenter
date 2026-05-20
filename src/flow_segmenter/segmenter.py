@@ -328,7 +328,7 @@ class SegmenterYolo(Segmenter):
         self.yolo_args = {**DEFAULT_YOLO_ARGS, **(config.yolo_args or {})}
 
         self.baselines = config.baselines
-        self.kraken_linemasks = config.kraken_linemasks if self.baselines else False
+        self.kraken_linemasks = config.kraken_linemasks
         self.textline_check = config.textline_check
         self.load_existing_segmentation = config.load_existing_segmentation
         self.order_lines = config.order_lines
@@ -502,6 +502,12 @@ class SegmenterYolo(Segmenter):
         namespace = XMLUtils.get_xml_namespace(xml_etree)
         if self.textline_check:
             xml_etree = XMLUtils.convert_textregions_to_textlines(xml_etree, namespace)
+
+        if not xml_etree.findall(".//ns:Baseline", namespaces=namespace):
+            logger.warning(
+                "No TextLines with Baselines found in XML; predicting baselines"
+            )
+            self.baselines = True
 
         # Add baselines if configured
         if self.baselines:

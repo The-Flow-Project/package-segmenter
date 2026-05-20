@@ -28,15 +28,6 @@ class SegmenterBaseConfig(BaseModel):
         description="Creator name for metadata, default is 'The-Flow-Project'.",
     )
 
-    @model_validator(mode="after")
-    def validate_baselines_true(self):
-        """Ensure baselines is True if kraken_linemasks is True."""
-        if self.kraken_linemasks and not self.baselines:
-            raise ValueError(
-                "If kraken_linemasks is True, baselines must also be True."
-            )
-        return self
-
 
 class SegmenterConfig(SegmenterBaseConfig):
     """
