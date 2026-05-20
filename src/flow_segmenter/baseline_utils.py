@@ -3,6 +3,7 @@ Baseline utilities with performance optimizations.
 """
 
 from io import BytesIO
+from typing import cast
 
 import lxml.etree as et
 import numpy as np
@@ -57,7 +58,7 @@ class BaselineUtils:
 
     @staticmethod
     def extract_masks_from_xml(
-        xml_etree: et.Element, namespace: dict[str, str]
+        xml_etree: et._Element, namespace: dict[str, str]
     ) -> list[Polygon]:
         """
         Extract polygon masks from TextLine elements in XML.
@@ -78,7 +79,7 @@ class BaselineUtils:
             try:
                 points = [
                     tuple(map(int, point.split(",")))
-                    for point in coords.attrib["points"].split()
+                    for point in cast(str, coords.attrib["points"]).split()
                 ]
                 masks.append(Polygon(points))
             except (ValueError, KeyError) as e:
@@ -154,7 +155,7 @@ class BaselineUtils:
     @staticmethod
     def assign_baselines_to_textlines(
         baselines: list[LineString],
-        textlines: list[et.Element],
+        textlines: list[et._Element],
         overlap_matrix: np.ndarray,
         namespace: dict[str, str],
     ) -> None:
@@ -202,9 +203,9 @@ class BaselineUtils:
     @staticmethod
     def predict_kraken_baselines(
         image: str | bytes | np.ndarray,
-        xml_etree: et.Element,
+        xml_etree: et._Element,
         namespace: dict[str, str],
-    ) -> et.Element:
+    ) -> et._Element:
         """
         Predict baselines for text lines using Kraken with optimized matching.
 
@@ -251,9 +252,9 @@ class BaselineUtils:
     @staticmethod
     def calc_and_add_linemasks_to_textlines(
         image: str | bytes | np.ndarray,
-        xml_etree: et.Element,
+        xml_etree: et._Element,
         namespace: dict[str, str],
-    ) -> et.Element:
+    ) -> et._Element:
         """
         Calculate and add line masks to text lines based on their baselines.
 
@@ -281,11 +282,13 @@ class BaselineUtils:
                 points = [
                     (int(x), int(y))
                     for x, y in [
-                        p.split(",") for p in baseline_el.attrib["points"].split()
+                        p.split(",") for p in cast(str, baseline_el.attrib["points"]).split()
                     ]
                 ]
                 if len(points) < 2:
-                    logger.warning(f"Skipping line {line_nr}: baseline has only {len(points)} point(s)")
+                    logger.warning(
+                        f"Skipping line {line_nr}: baseline has only {len(points)} point(s)"
+                    )
                     continue
                 baseline_points.append(points)
                 lines.append(line_el)

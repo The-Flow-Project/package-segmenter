@@ -329,9 +329,7 @@ class TestProcessSingleDatasetExample:
 
     @patch("flow_segmenter.segmenter.XMLUtils.safe_parse_xml")
     @patch.object(SegmenterYolo, "segment")
-    def test_process_dataset_example_segmentation_error(
-        self, mock_segment, mock_parse
-    ):
+    def test_process_dataset_example_segmentation_error(self, mock_segment, mock_parse):
         """Test handling segmentation errors."""
         config = SegmenterConfig(model_names="model.pt")
         segmenter = SegmenterYolo(config)

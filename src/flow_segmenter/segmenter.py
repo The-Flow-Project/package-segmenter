@@ -6,8 +6,8 @@ Package to recognize text segmentation
 # IMPORT STATEMENTS
 # ===============================================================================
 
-import copy
 import contextlib
+import copy
 import os
 import tempfile
 from abc import ABC, abstractmethod
@@ -75,7 +75,7 @@ class Segmenter(ABC):
             torch.backends.cudnn.allow_tf32 = True
         else:
             self.devicename = "cpu"
-        self.device = (torch.device(self.devicename))
+        self.device = torch.device(self.devicename)
 
         self.model_names = None
         self.batch_size = None
@@ -83,8 +83,8 @@ class Segmenter(ABC):
 
     @abstractmethod
     def segment(
-        self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
-    ) -> Optional[et.Element]:
+        self, image: bytes | np.ndarray, xml_etree: Optional[et._Element] = None
+    ) -> Optional[et._Element]:
         """
         Method to segment the image with the loaded model
         :param image: Path to the image or numpy array
@@ -264,8 +264,8 @@ class SegmenterKrakenLinemasks(Segmenter):
         self.kraken_linemasks = config.kraken_linemasks
 
     def segment(
-        self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
-    ) -> Optional[et.Element]:
+        self, image: bytes | np.ndarray, xml_etree: Optional[et._Element] = None
+    ) -> Optional[et._Element]:
         """
         Segment an image by adding baselines and linemasks using kraken's default blla model.
 
@@ -462,7 +462,7 @@ class SegmenterYolo(Segmenter):
 
     def _run_pipeline_and_serialize(
         self, collection: Collection
-    ) -> Optional[et.Element]:
+    ) -> Optional[et._Element]:
         """
         Run the segmentation pipeline and serialize the result to XML.
 
@@ -489,8 +489,8 @@ class SegmenterYolo(Segmenter):
         return XMLUtils.safe_parse_xml(xml_content)
 
     def _apply_postprocessing(
-        self, xml_etree: et.Element, image: str | bytes | np.ndarray
-    ) -> et.Element:
+        self, xml_etree: et._Element, image: str | bytes | np.ndarray
+    ) -> et._Element:
         """
         Apply post-processing steps to the segmented XML.
 
@@ -518,8 +518,8 @@ class SegmenterYolo(Segmenter):
         return xml_etree
 
     def _merge_or_finalize_xml(
-        self, new_etree: Optional[et.Element], original_etree: Optional[et.Element]
-    ) -> et.Element:
+        self, new_etree: Optional[et._Element], original_etree: Optional[et._Element]
+    ) -> et._Element:
         """
         Merge with original XML or finalize the new XML with metadata.
 
@@ -553,8 +553,8 @@ class SegmenterYolo(Segmenter):
                 return new_etree
 
     def segment(
-        self, image: bytes | np.ndarray, xml_etree: Optional[et.Element] = None
-    ) -> Optional[et.Element]:
+        self, image: bytes | np.ndarray, xml_etree: Optional[et._Element] = None
+    ) -> Optional[et._Element]:
         """
         Segment an image using the loaded YOLO model.
 
@@ -581,7 +581,9 @@ class SegmenterYolo(Segmenter):
             )
         else:
             xml_content = None
-        collection, temp_paths = self._create_and_validate_collection(image, xml_content)
+        collection, temp_paths = self._create_and_validate_collection(
+            image, xml_content
+        )
 
         try:
             # Step 2: Run pipeline and serialize to XML

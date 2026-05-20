@@ -56,7 +56,7 @@ class TestMergeXMLPages:
 
         # Modify xml2's page content
         page2 = xml2.find(".//ns:Page", namespaces=ns)
-        if page2:
+        if page2 is not None:
             ns_uri = ns.get("ns")
             new_region = et.Element("TextRegion", id="new_region")
             new_region.tag = f"{{{ns_uri}}}TextRegion"

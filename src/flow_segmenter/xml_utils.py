@@ -14,7 +14,7 @@ class XMLUtils:
     """Utility class for XML operations on PageXML documents."""
 
     @staticmethod
-    def get_xml_namespace(xml_etree: et.Element) -> dict[str, str]:
+    def get_xml_namespace(xml_etree: et._Element) -> dict[str, str]:
         """
         Extract the namespace from an XML element.
 
@@ -26,9 +26,9 @@ class XMLUtils:
 
     @staticmethod
     def merge_xml_pages(
-        existing_etree: et.Element,
-        new_etree: et.Element,
-    ) -> et.Element:
+        existing_etree: et._Element,
+        new_etree: et._Element,
+    ) -> et._Element:
         """
         Merge two PageXML documents by replacing the <Page> element.
 
@@ -70,8 +70,8 @@ class XMLUtils:
 
     @staticmethod
     def add_creator_metadata(
-        xml_etree: et.Element, creator: str, namespace: dict[str, str] | None = None
-    ) -> et.Element:
+        xml_etree: et._Element, creator: str, namespace: dict[str, str] | None = None
+    ) -> et._Element:
         """
         Add creator information to the metadata of a PageXML document.
 
@@ -105,8 +105,8 @@ class XMLUtils:
 
     @staticmethod
     def convert_textregions_to_textlines(
-        xml_etree: et.Element, namespace: dict[str, str] | None = None
-    ) -> et.Element:
+        xml_etree: et._Element, namespace: dict[str, str] | None = None
+    ) -> et._Element:
         """
         Convert TextRegion elements to TextLine if their ID contains 'textline'.
 
@@ -139,7 +139,7 @@ class XMLUtils:
         return xml_etree
 
     @staticmethod
-    def safe_parse_xml(xml_content: bytes, encoding: str = "utf-8") -> et.Element:
+    def safe_parse_xml(xml_content: bytes, encoding: str = "utf-8") -> et._Element:
         """
         Safely parse XML content with security measures against XXE attacks.
 
@@ -148,6 +148,7 @@ class XMLUtils:
         :return: Parsed XML element tree
         :raises InvalidXMLError: If XML parsing fails
         """
+        # AIDEV-NOTE: return type is et._Element; et.fromstring return type is declared as et._Element in lxml stubs
         try:
             return et.fromstring(
                 xml_content,
@@ -164,7 +165,7 @@ class XMLUtils:
             ) from e
 
     @staticmethod
-    def serialize_xml(xml_etree: et.Element) -> str:
+    def serialize_xml(xml_etree: et._Element) -> str:
         """
         Serialize XML element tree to string with default encoding (utf-8).
 
