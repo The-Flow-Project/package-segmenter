@@ -61,7 +61,6 @@ dev = [
     "black>=24.10.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
-    "isort>=5.13.2",
     "types-Pillow>=10.2.0",
     "types-PyYAML>=6.0.12",
     "lxml-stubs>=0.5.1",
@@ -124,12 +123,6 @@ lint.ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"] # allow unused imports in __init__.py for better package exports
 "tests/*" = ["S101", "PLR2004"]
-
-[tool.isort]
-profile = "black"
-line_length = 88
-skip_gitignore = true
-indent = 4
 
 [tool.mypy]
 python_version = "3.12"

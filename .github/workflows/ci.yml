@@ -50,15 +50,11 @@ jobs:
       - name: Auto-format code
         run: |
           uv run black src/ tests/
-          uv run isort src/ tests/
           uv run ruff check --fix src/ tests/
 
       # Check Phase (sollte nach Fixes bestehen)
       - name: Verify code formatting
         run: uv run black --check src/ tests/
-
-      - name: Verify import sorting
-        run: uv run isort --check-only src/ tests/
 
       - name: Lint with Ruff
         run: uv run ruff check src/ tests/
