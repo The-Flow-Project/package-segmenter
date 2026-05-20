@@ -16,7 +16,7 @@ from .logger_config import setup_logger
 from .segmenter import SegmenterKrakenLinemasks, SegmenterYolo
 from .xml_utils import XMLUtils
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __license__ = "MIT"
 __authors__ = ["jnswidmer"]
 
